@@ -1,0 +1,31 @@
+services:
+  cnappuccino-test:
+    build:
+      context: ../..
+      dockerfile: testing/docker/Dockerfile
+    container_name: cnappuccino-debug
+    volumes:
+      - ../../terraform/user_data.sh.gist:/usr/local/bin/test_user_data.sh:ro
+      - ../logs:/tmp/logs
+    environment:
+      - DEBIAN_FRONTEND=noninteractive
+    # Keep container running for debugging
+    command: >
+      /bin/bash -c "
+      echo 'Starting CNAPPuccino user data test...' &&
+      echo 'Running with bash -x for verbose output...' &&
+      /bin/bash -x /usr/local/bin/test_user_data.sh 2>&1 | tee /tmp/logs/user_data_debug.log;
+      echo 'Script completed with exit code: $$?';
+      echo 'Starting Apache in foreground for container lifetime...';
+      exec apachectl -DFOREGROUND
+      "
+    ports:
+      - "8081:80"
+      - "8080:8080"
+      - "8443:8443"
+      - "2222:22"
+    privileged: true
+    # Allow systemd to work properly
+    tmpfs:
+      - /run
+      - /tmp

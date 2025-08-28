@@ -1,0 +1,4 @@
+# Ubuntu 14.04 LTS (Trusty) repositories - SOURCE for old vulnerable packages on 16.04 system
+deb http://old-releases.ubuntu.com/ubuntu/ trusty main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ trusty-updates main restricted universe multiverse
+deb http://old-releases.ubuntu.com/ubuntu/ trusty-security main restricted universe multiverse

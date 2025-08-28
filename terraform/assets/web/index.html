@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CNAPPuccino Vulnerable Lab</title>
+</head>
+<body>
+    <h1>🚨 CNAPPuccino Vulnerable Environment 🚨</h1>
+    <p>Ubuntu 14.04 LTS (End of Life) - Intentionally Vulnerable</p>
+    <h2>Available Endpoints:</h2>
+    <ul>
+        <li><a href="/cgi-bin/exec.cgi">CGI Endpoint</a> (Command Injection via unsanitized header, NOT Shellshock CVE-2014-6271)</li>
+        <li><a href="/upload.php">File Upload</a> (Unrestricted)</li>
+        <li><a href=":8080/secret/">Secret Directory</a> (Directory listing)</li>
+        <li><a href=":8443/">SSL Endpoint</a> (Heartbleed CVE-2014-0160)</li>
+    </ul>
+    <h2>Vulnerable Software Versions:</h2>
+    <ul>
+        <li>Bash 4.3 (function-import Shellshock patched; direct command injection remains)</li>
+        <li>OpenSSL 1.0.1f (Heartbleed vulnerable)</li>
+        <li>Apache 2.4.7 (Multiple CVEs)</li>
+        <li>PHP5 (End of Life)</li>
+        <li>Ubuntu 14.04 LTS (End of Life)</li>
+    </ul>
+</body>
+</html>

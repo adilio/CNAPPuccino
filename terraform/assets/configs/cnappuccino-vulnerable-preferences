@@ -1,0 +1,17 @@
+# Prefer Ubuntu 16.04 packages by default
+Package: *
+Pin: release n=xenial
+Pin-Priority: 1000
+
+# Allow specific vulnerable packages from Ubuntu 14.04 repositories (installed on 16.04)
+Package: bash
+Pin: release n=trusty
+Pin-Priority: 1001
+
+Package: openssl libssl1.0.0
+Pin: release n=trusty
+Pin-Priority: 1001
+
+Package: apache2 apache2-*
+Pin: release n=trusty
+Pin-Priority: 1001
