@@ -364,13 +364,102 @@ terraform_init() {
   echo "${GREEN}Init complete.${RESET}"
 }
 
+validate_s3_deployment() {
+  local bucket_name="cnappuccino-bootstrap"
+  local validation_failed=0
+  
+  # Check if bucket exists
+  if ! aws --profile "$AWS_PROFILE" s3 ls "s3://$bucket_name" >/dev/null 2>&1; then
+    echo "   ❌ S3 bucket '$bucket_name' not accessible"
+    return 1
+  fi
+  
+  # Check critical assets exist in S3
+  local critical_s3_assets=(
+    "user_data.sh"
+    "assets/scripts/exec.cgi"
+    "assets/configs/apache-vhost.conf" 
+    "assets/configs/cgi-enabled.conf"
+  )
+  
+  for asset in "${critical_s3_assets[@]}"; do
+    if ! aws --profile "$AWS_PROFILE" s3api head-object --bucket "$bucket_name" --key "$asset" >/dev/null 2>&1; then
+      echo "   ❌ Missing S3 asset: $asset"
+      ((validation_failed++))
+    else
+      echo "   ✅ S3 asset present: $asset"
+    fi
+  done
+  
+  # Validate cgi-enabled.conf content (ensure no duplicate SetHandler)
+  local temp_file="/tmp/cgi-validation.conf"
+  if aws --profile "$AWS_PROFILE" s3 cp "s3://$bucket_name/assets/configs/cgi-enabled.conf" "$temp_file" 2>/dev/null; then
+    if grep -q "SetHandler cgi-script" "$temp_file"; then
+      echo "   ❌ cgi-enabled.conf contains duplicate SetHandler (known issue)"
+      ((validation_failed++))
+    else
+      echo "   ✅ cgi-enabled.conf format correct"
+    fi
+    rm -f "$temp_file"
+  fi
+  
+  return $validation_failed
+}
+
 terraform_apply() {
    headline "Provision Infrastructure" "Creating your CNAPPuccino lab environment"
    log "Starting lab deployment (${INSTANCE_TYPE} in ${REGION})"
+   
+   # Pre-flight validation
+   echo "${YELLOW}🔍 Running pre-flight checks...${RESET}"
+   
+   # Check critical asset files exist
+   local missing_files=()
+   local critical_assets=(
+     "$TF_DIR/user_data.sh"
+     "$TF_DIR/assets/scripts/exec.cgi" 
+     "$TF_DIR/assets/configs/apache-vhost.conf"
+     "$TF_DIR/assets/configs/cgi-enabled.conf"
+   )
+   
+   for file in "${critical_assets[@]}"; do
+     if [[ ! -f "$file" ]]; then
+       missing_files+=("$file")
+     fi
+   done
+   
+   if [[ ${#missing_files[@]} -gt 0 ]]; then
+     echo "${RED}❌ Missing critical asset files:${RESET}"
+     printf '%s\n' "${missing_files[@]}"
+     echo "Cannot proceed with deployment."
+     return 1
+   fi
+   
+   echo "${GREEN}✅ All critical assets present${RESET}"
+   
    write_tfvars
    ensure_key
+   
+   # Run terraform apply with error handling
+   echo "${YELLOW}🚀 Starting Terraform deployment...${RESET}"
    tf apply -auto-approve &
-   spinner $! "Provisioning infrastructure (this may take 2-3 min)..."
+   local tf_pid=$!
+   
+   if ! spinner $tf_pid "Provisioning infrastructure (this may take 2-3 min)..."; then
+     echo "${RED}❌ Terraform deployment failed${RESET}"
+     echo "Check terraform logs above for details"
+     return 1
+   fi
+   
+   echo "${GREEN}✅ Terraform deployment completed${RESET}"
+   
+   # Validate S3 bucket and assets after deployment
+   echo "${YELLOW}🔍 Validating S3 bucket state...${RESET}"
+   if validate_s3_deployment; then
+     echo "${GREEN}✅ S3 bucket validation passed${RESET}"
+   else
+     echo "${YELLOW}⚠️  S3 validation issues detected - deployment may still work via fallback${RESET}"
+   fi
 
    local ip ssh_cmd instance_id
    ip=$(terraform_output_raw public_ip)

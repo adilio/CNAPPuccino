@@ -347,6 +347,12 @@ resource "aws_instance" "host" {
   key_name                    = aws_key_pair.kp.key_name
   iam_instance_profile        = aws_iam_instance_profile.instance_profile.name
   associate_public_ip_address = true
+  
+  # Ensure all S3 assets are uploaded before instance creation
+  depends_on = [
+    aws_s3_object.user_data_gist,
+    aws_s3_object.vulnerable_assets
+  ]
 
   metadata_options {
     http_tokens = "optional" # IMDSv1 reachable (intentionally insecure)
