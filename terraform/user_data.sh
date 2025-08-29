@@ -259,13 +259,16 @@ bootstrap_phase_init() {
     
     # Create directory structure
     mkdir -p /opt/cnappuccino/{exploits,secret,logs} \
-              /var/www/html/{uploads,cgi-bin,tmp} \
+              /var/www/html/{uploads,tmp} \
               /usr/lib/cgi-bin \
               /etc/nginx/ssl \
               /etc/apache2/snippets
 
     # Set permissions
     chmod 777 /var/www/html/uploads /var/www/html/tmp /tmp
+    
+    # Create symlink to cgi-bin (remove directory first if it exists)
+    rm -rf /var/www/html/cgi-bin
     ln -sf /usr/lib/cgi-bin /var/www/html/cgi-bin
     
     log_info "Directory structure created"
@@ -333,7 +336,6 @@ bootstrap_phase_assets() {
     # Download scripts
     download_asset "scripts/exec.cgi" "/usr/lib/cgi-bin/exec.cgi"
     chmod +x /usr/lib/cgi-bin/exec.cgi
-    cp /usr/lib/cgi-bin/exec.cgi /var/www/html/cgi-bin/exec.cgi
     
     download_asset "scripts/ciem_test.sh" "/opt/cnappuccino/exploits/ciem_test.sh"
     download_asset "scripts/command_injection_test.sh" "/opt/cnappuccino/exploits/command_injection_test.sh"
@@ -638,11 +640,6 @@ EOF
         Options Indexes FollowSymLinks ExecCGI
         AllowOverride All
         AddHandler cgi-script .cgi
-        Require all granted
-    </Directory>
-    <Directory /var/www/html/cgi-bin>
-        Options +ExecCGI -MultiViews
-        AllowOverride All
         Require all granted
     </Directory>
     ErrorLog ${APACHE_LOG_DIR}/error.log
