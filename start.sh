@@ -777,8 +777,22 @@ terraform_nuke() {
     done
   fi
   
-  # Step 12: Delete key pairs and IAM resources
-  echo "12/12 Deleting key pairs and IAM resources..."
+  # Step 12: Delete S3 buckets
+  echo "12/13 Deleting S3 buckets..."
+  local s3_buckets
+  s3_buckets=$(aws --profile "$AWS_PROFILE" s3api list-buckets --query "Buckets[?contains(Name, 'cnappuccino')].Name" --output text 2>/dev/null || echo "")
+  if [[ -n "$s3_buckets" && "$s3_buckets" != "None" ]]; then
+    for bucket in $s3_buckets; do
+      echo "   Emptying and deleting bucket: $bucket"
+      # Empty bucket first (required before deletion)
+      aws --profile "$AWS_PROFILE" s3 rm "s3://$bucket" --recursive 2>/dev/null || true
+      # Delete bucket
+      retry_aws_operation "aws --profile '$AWS_PROFILE' s3api delete-bucket --bucket '$bucket'" "delete S3 bucket $bucket"
+    done
+  fi
+  
+  # Step 13: Delete key pairs and IAM resources
+  echo "13/13 Deleting key pairs and IAM resources..."
   aws --profile "$AWS_PROFILE" ec2 delete-key-pair --key-name cnappuccino-kp >/dev/null 2>&1 || true
   aws --profile "$AWS_PROFILE" iam remove-role-from-instance-profile --instance-profile-name cnappuccino_lab_instance_profile --role-name cnappuccino_lab_instance_role >/dev/null 2>&1 || true
   aws --profile "$AWS_PROFILE" iam delete-instance-profile --instance-profile-name cnappuccino_lab_instance_profile >/dev/null 2>&1 || true
