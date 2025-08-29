@@ -295,7 +295,7 @@ EOF
         log_info "Added Ubuntu 14.04 repositories"
     fi
     
-    # Download and apply vulnerable preferences from S3
+    # Download and apply vulnerable preferences from GitHub
     download_asset "configs/cnappuccino-vulnerable-preferences" "/etc/apt/preferences.d/cnappuccino-vulnerable"
     
     # Install base packages
@@ -331,7 +331,7 @@ EOF
 }
 
 bootstrap_phase_assets() {
-    log_info "Downloading vulnerable assets from S3"
+    log_info "Downloading vulnerable assets from GitHub"
     
     # Download scripts
     download_asset "scripts/exec.cgi" "/usr/lib/cgi-bin/exec.cgi"
@@ -505,34 +505,39 @@ bootstrap_phase_validation() {
 download_asset() {
     local asset_path="$1"
     local local_path="$2"
-    local max_attempts=3
-    local attempt=1
-    
-    # Direct S3 download using AWS CLI with instance profile
-    
+
     log_info "Downloading asset: $asset_path -> $local_path"
-    
-    # Use AWS CLI with instance profile instead of curl with pre-signed URLs
-    local s3_key="assets/$asset_path"
-    local s3_uri="s3://${S3_BUCKET:-cnappuccino-bootstrap}/$s3_key"
-    
-    while [[ $attempt -le $max_attempts ]]; do
-        if aws s3 cp "$s3_uri" "$local_path" --region "${AWS_DEFAULT_REGION:-us-east-1}"; then
-            log_info "Asset downloaded successfully: $asset_path"
-            return 0
-        fi
-        
-        log_warn "Asset download attempt $attempt/$max_attempts failed: $asset_path"
-        ((attempt++))
-        
-        if [[ $attempt -le $max_attempts ]]; then
-            sleep 5
-        fi
-    done
-    
-    log_error "Failed to download asset from S3 after $max_attempts attempts: $asset_path"
-    
-    # Fallback: use embedded content 
+
+    # Try GitHub raw URLs first (simplest approach)
+    local github_raw_url="https://raw.githubusercontent.com/adilio/CNAPPuccino/main/terraform/assets/${asset_path}"
+
+    if curl -s -f -o "$local_path" "$github_raw_url"; then
+        log_info "✅ Downloaded from GitHub: $asset_path"
+        return 0
+    fi
+
+    # COMMENTED OUT: Original S3 approach (keeping for reference)
+    # log_warn "GitHub download failed, trying S3: $asset_path"
+    # local s3_key="assets/$asset_path"
+    # local s3_uri="s3://${S3_BUCKET:-cnappuccino-bootstrap}/$s3_key"
+    # local max_attempts=3
+    # local attempt=1
+    #
+    # while [[ $attempt -le $max_attempts ]]; do
+    #     if aws s3 cp "$s3_uri" "$local_path" --region "${AWS_DEFAULT_REGION:-us-east-1}"; then
+    #         log_info "Asset downloaded successfully from S3: $asset_path"
+    #         return 0
+    #     fi
+    #     log_warn "S3 download attempt $attempt/$max_attempts failed: $asset_path"
+    #     ((attempt++))
+    #     if [[ $attempt -le $max_attempts ]]; then
+    #         sleep 5
+    #     fi
+    # done
+
+    log_error "❌ Failed to download asset from GitHub: $asset_path"
+
+    # Fallback: use embedded content
     log_warn "Using fallback embedded content for: $asset_path"
     create_fallback_asset "$asset_path" "$local_path"
 }
@@ -692,9 +697,10 @@ EOF
             ;;
         "configs/cgi-enabled.conf")
             cat > "$local_path" <<'EOF'
+# CGI configuration is handled in apache-vhost.conf to avoid conflicts
+# This file intentionally left minimal to prevent duplicate SetHandler directives
 <Directory "/usr/lib/cgi-bin">
     AllowOverride None
-    Options +ExecCGI
     Require all granted
 </Directory>
 EOF

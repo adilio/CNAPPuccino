@@ -361,20 +361,15 @@ resource "aws_instance" "host" {
   user_data = <<-EOT
     #!/bin/bash
     TMP_SCRIPT="/tmp/cnappuccino_full_setup.sh"
-    echo "[BOOTSTRAP] Downloading full CNAPPuccino setup script from S3 using instance profile credentials..."
-    # Install AWS CLI if not present
-    if ! command -v aws >/dev/null 2>&1; then
-        apt-get update -y && apt-get install -y awscli
-    fi
+    echo "[BOOTSTRAP] Downloading full CNAPPuccino setup script from GitHub..."
     # Set environment variables for Terraform interpolation
     export LAMBDA_ADMIN_ROLE_ARN="${aws_iam_role.lambda_admin.arn}"
     export AWS_DEFAULT_REGION="${var.region}"
-    export S3_BUCKET="${aws_s3_bucket.bootstrap.bucket}"
-    
-    # Download using instance profile credentials
-    aws s3 cp "s3://${aws_s3_bucket.bootstrap.bucket}/user_data.sh" "$TMP_SCRIPT" --region "${var.region}"
+
+    # Download from GitHub instead of S3
+    curl -s -f -o "$TMP_SCRIPT" "https://raw.githubusercontent.com/adilio/CNAPPuccino/main/terraform/user_data.sh"
     if [ ! -s "$TMP_SCRIPT" ]; then
-        echo "[BOOTSTRAP] ERROR: Failed to download full setup script from s3://${aws_s3_bucket.bootstrap.bucket}/user_data.sh"
+        echo "[BOOTSTRAP] ERROR: Failed to download full setup script from GitHub"
         exit 1
     fi
     chmod +x "$TMP_SCRIPT"
