@@ -699,7 +699,6 @@ EOF
     AllowOverride None
     Options +ExecCGI
     Require all granted
-    SetHandler cgi-script
 </Directory>
 EOF
             ;;
