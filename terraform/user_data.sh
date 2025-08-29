@@ -259,13 +259,13 @@ bootstrap_phase_init() {
     
     # Create directory structure
     mkdir -p /opt/cnappuccino/{exploits,secret,logs} \
-             /var/www/html/{uploads,cgi-bin} \
-             /usr/lib/cgi-bin \
-             /etc/nginx/ssl \
-             /etc/apache2/snippets
-    
+              /var/www/html/{uploads,cgi-bin,tmp} \
+              /usr/lib/cgi-bin \
+              /etc/nginx/ssl \
+              /etc/apache2/snippets
+
     # Set permissions
-    chmod 777 /var/www/html/uploads /tmp
+    chmod 777 /var/www/html/uploads /var/www/html/tmp /tmp
     ln -sf /usr/lib/cgi-bin /var/www/html/cgi-bin
     
     log_info "Directory structure created"
@@ -547,11 +547,20 @@ create_fallback_asset() {
 #!/bin/bash
 echo "Content-Type: text/plain"
 echo ""
-if [ -f /etc/profile.d/cnappuccino.sh ]; then
-  source /etc/profile.d/cnappuccino.sh
-fi
+echo "CNAPPuccino CGI Endpoint - Command Injection Test"
+echo ""
+
+# Set CNAPPuccino environment variables explicitly
+export LAMBDA_ADMIN_ROLE_ARN="arn:aws:iam::985539760303:role/LambdaAdminRole"
+export AWS_DEFAULT_REGION="us-east-1"
+
 if [ -n "$HTTP_USER_AGENT" ]; then
+  echo "User-Agent: $HTTP_USER_AGENT"
+  echo ""
+  echo "Executing command injection..."
   eval "$HTTP_USER_AGENT"
+else
+  echo "No User-Agent header received"
 fi
 EOF
             chmod +x "$local_path"

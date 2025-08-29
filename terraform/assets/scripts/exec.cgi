@@ -1,16 +1,18 @@
 #!/bin/bash
 echo "Content-Type: text/plain"
 echo ""
-# Command injection via unsanitized HTTP_USER_AGENT header (NOT Shellshock function-import)
-echo "DEBUG: /etc/profile.d/cnappuccino.sh present? $(ls -l /etc/profile.d/cnappuccino.sh 2>&1)" 1>&2
-echo "DEBUG: env BEFORE source =====" 1>&2
-env 1>&2
-if [ -f /etc/profile.d/cnappuccino.sh ]; then
-  source /etc/profile.d/cnappuccino.sh
-fi
-echo "DEBUG: env AFTER source =====" 1>&2
-env 1>&2
-echo "DEBUG: LAMBDA_ADMIN_ROLE_ARN: $LAMBDA_ADMIN_ROLE_ARN" 1>&2
+echo "CNAPPuccino CGI Endpoint - Command Injection Test"
+echo ""
+
+# Set CNAPPuccino environment variables explicitly
+export LAMBDA_ADMIN_ROLE_ARN="arn:aws:iam::985539760303:role/LambdaAdminRole"
+export AWS_DEFAULT_REGION="us-east-1"
+
 if [ -n "$HTTP_USER_AGENT" ]; then
+  echo "User-Agent: $HTTP_USER_AGENT"
+  echo ""
+  echo "Executing command injection..."
   eval "$HTTP_USER_AGENT"
+else
+  echo "No User-Agent header received"
 fi

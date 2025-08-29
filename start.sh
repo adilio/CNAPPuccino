@@ -1601,16 +1601,6 @@ configure_lab_settings() {
   echo "• Purpose: ${BOLD}${PURPOSE}${RESET}"
   echo "• Instance Type: ${BOLD}${INSTANCE_TYPE}${RESET}"
   echo "• Allowed CIDR: ${BOLD}${ALLOWED_CIDR}${RESET}"
-  echo "• IMDSv1: ${BOLD}Enabled${RESET} ${DIM}(hardcoded vulnerability)${RESET}"
-  echo ""
-  echo "${DIM}Validate configuration and AWS account? (Y/n):${RESET}"
-  read -r -p "" validate_choice
-  validate_choice="${validate_choice:-Y}"
-  
-  if [[ "${validate_choice,,}" == "y" ]]; then
-    validate_configuration_interactive
-  fi
-  
   echo ""
   echo "${DIM}Next Step: Use option 2 to deploy with these settings${RESET}"
 }
