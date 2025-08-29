@@ -637,6 +637,7 @@ EOF
         AllowOverride None
         Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
         Require all granted
+        SetHandler cgi-script
     </Directory>
     <Directory /var/www/html>
         Options Indexes FollowSymLinks ExecCGI
