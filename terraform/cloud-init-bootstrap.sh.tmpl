@@ -19,6 +19,29 @@ touch "$LOG" || true
 
 log() { echo "[stage1] $*" | tee -a "$LOG"; }
 
+# Ensure network is up before heavy operations
+wait_for_network() {
+  local tries=12 delay=5
+  while (( tries > 0 )); do
+    if ping -c1 -W1 1.1.1.1 >/dev/null 2>&1 || ping -c1 -W1 8.8.8.8 >/dev/null 2>&1; then
+      return 0
+    fi
+    log "network not ready; retrying in ${delay}s"
+    sleep "$delay"
+    tries=$(( tries - 1 ))
+  done
+  return 1
+}
+
+# Ensure curl and CA certificates are available (helps with TLS errors)
+ensure_tools() {
+  if ! command -v curl >/dev/null 2>&1; then
+    apt-get update -qq || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -yq curl ca-certificates || true
+    update-ca-certificates || true
+  fi
+}
+
 download_with_retry() {
   local url="$1" out="$2" max=5 delay=2 attempt=1
   while (( attempt <= max )); do
@@ -29,6 +52,12 @@ download_with_retry() {
     sleep "$delay"
     delay=$(( delay * 2 ))
     attempt=$(( attempt + 1 ))
+    # After first failure, try to ensure CA certificates are present
+    if (( attempt == 2 )); then
+      apt-get update -qq || true
+      DEBIAN_FRONTEND=noninteractive apt-get install -yq ca-certificates || true
+      update-ca-certificates || true
+    fi
   done
   return 1
 }
@@ -43,6 +72,9 @@ verify_sha256() {
   [[ "$actual" == "$expected" ]]
 }
 
+log "Waiting for network..."
+wait_for_network || log "continuing without positive ping"
+ensure_tools
 log "Downloading Stage 2 bootstrap from: $BOOTSTRAP_URL"
 if download_with_retry "$BOOTSTRAP_URL" "$TMP_BOOTSTRAP"; then
   if verify_sha256 "$TMP_BOOTSTRAP" "$EXPECTED_SHA256"; then
