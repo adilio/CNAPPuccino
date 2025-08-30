@@ -664,6 +664,13 @@ bootstrap_phase_apache() {
     # Disable conflicting CGI configuration that lacks SetHandler directive
     a2disconf serve-cgi-bin 2>/dev/null || log_warn "⚠️ serve-cgi-bin not enabled"
 
+    # Inject environment for CGI so ciem_test.sh can read dynamic values
+    cat > /etc/apache2/conf-available/cnappuccino-env.conf <<EOF
+SetEnv LAMBDA_ADMIN_ROLE_ARN "${LAMBDA_ADMIN_ROLE_ARN}"
+SetEnv AWS_DEFAULT_REGION "${AWS_REGION}"
+EOF
+    a2enconf cnappuccino-env 2>/dev/null || log_warn "⚠️ Could not enable cnappuccino-env"
+
     # Enable the vulnerable site
     a2ensite 000-default 2>/dev/null || log_warn "⚠️ Could not enable 000-default site"
     a2dissite default-ssl 2>/dev/null || true
@@ -889,7 +896,9 @@ aws_access_key_id=AKIAFAKE123456789
 aws_secret_access_key=abcdEFGHijklMNOPqrstUVWXyz1234567890
 region=us-east-1
 EOF
-    chmod 600 /opt/cnappuccino/secret/aws_creds.txt 2>/dev/null || true
+    # Intentionally weak permissions to demonstrate poor secrets handling
+    chmod 755 /opt/cnappuccino/secret 2>/dev/null || true
+    chmod 644 /opt/cnappuccino/secret/aws_creds.txt 2>/dev/null || true
     
     log_info "✅ Secret files created"
 }
