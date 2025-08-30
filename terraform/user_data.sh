@@ -260,7 +260,7 @@ bootstrap_phase_packages() {
 
     # Install essential packages only - others can be installed as needed
     local essential_packages=(
-        "curl" "wget" "apache2" "nginx"
+        "curl" "wget" "apache2" "nginx" "awscli" "jq" "zip"
     )
 
     for package in "${essential_packages[@]}"; do
