@@ -26,7 +26,7 @@ wait_for_network() {
     if ping -c1 -W1 1.1.1.1 >/dev/null 2>&1 || ping -c1 -W1 8.8.8.8 >/dev/null 2>&1; then
       return 0
     fi
-    log "network not ready; retrying in ${delay}s"
+    log "network not ready; retrying in $delay s"
     sleep "$delay"
     tries=$(( tries - 1 ))
   done
