@@ -59,3 +59,4 @@ Thumbs.db
 
 # Claude assistant cache/fingerprint folders (ignore at any depth)
 **/.claude/
+CLAUDE.md
