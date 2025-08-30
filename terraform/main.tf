@@ -132,108 +132,10 @@ resource "aws_key_pair" "kp" {
   tags       = merge(local.common_tags, { Name = "cnappuccino-kp" })
 }
 
-# S3 bucket for bootstrapping files like user_daa.sh
-resource "aws_s3_bucket" "bootstrap" {
-  bucket        = "cnappuccino-bootstrap"
-  force_destroy = true
+# GitHub-based asset management - no S3 dependencies
+# Assets are downloaded directly from GitHub raw URLs during bootstrap
 
-  tags = merge(
-    local.common_tags,
-    { Name = "cnappuccino-bootstrap" }
-  )
-}
-
-resource "aws_s3_bucket_versioning" "bootstrap" {
-  bucket = aws_s3_bucket.bootstrap.id
-
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-resource "aws_s3_bucket_server_side_encryption_configuration" "bootstrap" {
-  bucket = aws_s3_bucket.bootstrap.id
-
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-# Upload the user_data script to S3 during apply
-resource "aws_s3_object" "user_data_gist" {
-  bucket        = aws_s3_bucket.bootstrap.bucket
-  key           = "user_data.sh"
-  source        = "${path.module}/user_data.sh"
-  etag          = filemd5("${path.module}/user_data.sh")
-}
-
-# Asset files mapping for DRY S3 upload
-locals {
-  vulnerable_assets = {
-    # Scripts (executable)
-    "assets/scripts/exec.cgi"                           = "assets/scripts/exec.cgi"
-    "assets/scripts/ciem_test.sh"                       = "assets/scripts/ciem_test.sh"
-    "assets/scripts/command_injection_test.sh"          = "assets/scripts/command_injection_test.sh"
-    "assets/scripts/webshell.php"                       = "assets/scripts/webshell.php"
-    
-    # Web content
-    "assets/web/index.html"                             = "assets/web/index.html"
-    "assets/web/upload.php"                             = "assets/web/upload.php"
-    "assets/web/view.php"                               = "assets/web/view.php"
-    
-    # Configuration files
-    "assets/configs/apache-vhost.conf"                  = "assets/configs/apache-vhost.conf"
-    "assets/configs/nginx-vulnerable.conf"              = "assets/configs/nginx-vulnerable.conf"
-    "assets/configs/fastcgi-php.conf"                   = "assets/configs/fastcgi-php.conf"
-    "assets/configs/cgi-enabled.conf"                   = "assets/configs/cgi-enabled.conf"
-    "assets/configs/ubuntu-trusty-sources.list"         = "assets/configs/ubuntu-trusty-sources.list"
-    "assets/configs/cnappuccino-vulnerable-preferences" = "assets/configs/cnappuccino-vulnerable-preferences"
-  }
-}
-
-# Upload all asset files to S3 using for_each (DRY approach)
-resource "aws_s3_object" "vulnerable_assets" {
-  for_each = local.vulnerable_assets
-  
-  bucket = aws_s3_bucket.bootstrap.bucket
-  key    = each.key
-  source = "${path.module}/${each.value}"
-  etag   = filemd5("${path.module}/${each.value}")
-  
-  tags = merge(local.common_tags, {
-    AssetType = "vulnerable-content"
-    AssetPath = each.key
-  })
-}
-
-# S3 assets are downloaded using AWS CLI with instance profile credentials
-
-# IAM policy for EC2 instance role to read bootstrap script from S3
-resource "aws_iam_role_policy" "instance_role_s3_read" {
-  name = "AllowReadBootstrapScript"
-  role = aws_iam_role.instance_role.id
-  policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Effect = "Allow",
-        Action = [
-          "s3:GetObject"
-        ],
-        Resource = "${aws_s3_bucket.bootstrap.arn}/*"
-      },
-      {
-        Effect = "Allow",
-        Action = [
-          "s3:ListBucket"
-        ],
-        Resource = "${aws_s3_bucket.bootstrap.arn}"
-      }
-    ]
-  })
-}
+# No S3 permissions needed - using GitHub raw URLs for asset downloads
 
 
 
@@ -348,11 +250,7 @@ resource "aws_instance" "host" {
   iam_instance_profile        = aws_iam_instance_profile.instance_profile.name
   associate_public_ip_address = true
   
-  # Ensure all S3 assets are uploaded before instance creation
-  depends_on = [
-    aws_s3_object.user_data_gist,
-    aws_s3_object.vulnerable_assets
-  ]
+  # No S3 dependencies - using GitHub-based asset management
 
   metadata_options {
     http_tokens = "optional" # IMDSv1 reachable (intentionally insecure)
@@ -360,21 +258,18 @@ resource "aws_instance" "host" {
 
   user_data = <<-EOT
     #!/bin/bash
-    TMP_SCRIPT="/tmp/cnappuccino_full_setup.sh"
-    echo "[BOOTSTRAP] Downloading full CNAPPuccino setup script from GitHub..."
+    # CNAPPuccino Stage 2 Bootstrap - Embedded Script Execution
+    # Execute the embedded user_data.sh script with proper environment variables
+
     # Set environment variables for Terraform interpolation
     export LAMBDA_ADMIN_ROLE_ARN="${aws_iam_role.lambda_admin.arn}"
     export AWS_DEFAULT_REGION="${var.region}"
 
-    # Download from GitHub instead of S3
-    curl -s -f -o "$TMP_SCRIPT" "https://raw.githubusercontent.com/adilio/CNAPPuccino/main/terraform/user_data.sh"
-    if [ ! -s "$TMP_SCRIPT" ]; then
-        echo "[BOOTSTRAP] ERROR: Failed to download full setup script from GitHub"
-        exit 1
-    fi
-    chmod +x "$TMP_SCRIPT"
-    echo "[BOOTSTRAP] Executing full CNAPPuccino setup script..."
-    bash "$TMP_SCRIPT"
+    # Execute the embedded bootstrap script
+    bash <(cat << 'BOOTSTRAP_EOF'
+${file("${path.module}/user_data.sh")}
+BOOTSTRAP_EOF
+)
   EOT
 
   tags = merge(local.common_tags, { Name = "cnappuccino-host" })

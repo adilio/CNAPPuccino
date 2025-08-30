@@ -20,6 +20,7 @@ cnappuccino-state/
 # Logs
 *.log
 .start.log
+exploit-test-results-*.txt
 
 # OS generated files
 .DS_Store
