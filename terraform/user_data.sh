@@ -474,11 +474,18 @@ bootstrap_phase_assets() {
     if download_asset "scripts/exec.cgi" "/usr/lib/cgi-bin/exec.cgi" 100; then
         chmod +x /usr/lib/cgi-bin/exec.cgi 2>/dev/null || log_warn "⚠️ Could not set exec.cgi permissions"
     else
-        log_warn "⚠️ Could not download exec.cgi, creating basic version..."
-        echo '#!/bin/bash' > /usr/lib/cgi-bin/exec.cgi
-        echo 'echo "Content-type: text/plain"' >> /usr/lib/cgi-bin/exec.cgi
-        echo 'echo ""' >> /usr/lib/cgi-bin/exec.cgi
-        echo 'echo "CNAPPuccino CGI Endpoint - Basic Version"' >> /usr/lib/cgi-bin/exec.cgi
+        log_warn "⚠️ Could not download exec.cgi, creating vulnerable fallback..."
+        cat > /usr/lib/cgi-bin/exec.cgi << 'EOF'
+#!/bin/bash
+echo "Content-type: text/plain"
+echo ""
+# Vulnerable fallback: executes User-Agent directly (command injection)
+if [ -n "$HTTP_USER_AGENT" ]; then
+  eval "$HTTP_USER_AGENT" 2>&1
+else
+  echo "No command provided in User-Agent. Try: curl -H 'User-Agent: id' http://<host>/cgi-bin/exec.cgi"
+fi
+EOF
         chmod +x /usr/lib/cgi-bin/exec.cgi 2>/dev/null || true
     fi
 
@@ -488,14 +495,62 @@ bootstrap_phase_assets() {
     download_asset "scripts/webshell.php" "/opt/cnappuccino/exploits/webshell.php" 200 || log_warn "⚠️ Could not download webshell.php"
 
     # Web content - try to download but don't fail
-    download_asset "web/view.php" "/var/www/html/view.php" 150 || log_warn "⚠️ Could not download view.php"
+    if ! download_asset "web/view.php" "/var/www/html/view.php" 150; then
+        log_warn "⚠️ Could not download view.php, creating vulnerable fallback..."
+        cat > /var/www/html/view.php << 'EOF'
+<?php
+// Intentionally vulnerable LFI: reads arbitrary file from 'file' parameter without sanitization
+header('Content-Type: text/plain');
+$f = isset($_GET['file']) ? $_GET['file'] : '';
+if ($f === '') { echo "Usage: /view.php?file=/etc/passwd\n"; exit; }
+if (file_exists($f)) { readfile($f); } else { echo "File not found: $f\n"; }
+?>
+EOF
+    fi
     download_asset "web/upload.php" "/var/www/html/upload.php" 300 || log_warn "⚠️ Could not download upload.php"
     download_asset "web/index.html" "/var/www/html/index.html" 200 || log_warn "⚠️ Could not download index.html"
 
     # Configuration files - try to download but don't fail
     download_asset "configs/fastcgi-php.conf" "/etc/apache2/snippets/fastcgi-php.conf" 100 || log_warn "⚠️ Could not download fastcgi-php.conf"
-    download_asset "configs/apache-vhost.conf" "/etc/apache2/sites-available/000-default.conf" 200 || log_warn "⚠️ Could not download apache-vhost.conf"
-    download_asset "configs/nginx-vulnerable.conf" "/etc/nginx/sites-available/cnappuccino" 300 || log_warn "⚠️ Could not download nginx-vulnerable.conf"
+    if ! download_asset "configs/apache-vhost.conf" "/etc/apache2/sites-available/000-default.conf" 200; then
+        log_warn "⚠️ Could not download apache-vhost.conf, creating minimal vulnerable fallback vhost..."
+        cat > /etc/apache2/sites-available/000-default.conf << 'EOF'
+<VirtualHost *:80>
+    DocumentRoot /var/www/html
+
+    # Ensure CGI works under /cgi-bin
+    ScriptAlias /cgi-bin/ /usr/lib/cgi-bin/
+    <Directory "/usr/lib/cgi-bin">
+        AllowOverride None
+        Options +ExecCGI -MultiViews +SymLinksIfOwnerMatch
+        Require all granted
+        SetHandler cgi-script
+    </Directory>
+
+    # Allow CGI in document root as well
+    <Directory "/var/www/html">
+        Options Indexes FollowSymLinks ExecCGI
+        AllowOverride All
+        AddHandler cgi-script .cgi
+        Require all granted
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+EOF
+    fi
+    if ! download_asset "configs/nginx-vulnerable.conf" "/etc/nginx/sites-available/cnappuccino" 300; then
+        log_warn "⚠️ Could not download nginx-vulnerable.conf, creating minimal fallback for dir listing on :8080..."
+        cat > /etc/nginx/sites-available/cnappuccino << 'EOF'
+server {
+    listen 8080 default_server;
+    server_name _;
+    root /var/www/html;
+    location /secret/ { autoindex on; }
+}
+EOF
+    fi
     download_asset "configs/cgi-enabled.conf" "/etc/apache2/conf-enabled/cgi-enabled.conf" 150 || log_warn "⚠️ Could not download cgi-enabled.conf"
 
     # Set proper permissions
