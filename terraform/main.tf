@@ -258,18 +258,52 @@ resource "aws_instance" "host" {
 
   user_data = <<-EOT
     #!/bin/bash
-    # CNAPPuccino Stage 2 Bootstrap - Embedded Script Execution
-    # Execute the embedded user_data.sh script with proper environment variables
+    # CNAPPuccino Minimal Bootstrap - Downloads full script from GitHub
+    # This minimal script works around Terraform's 16KB user_data limit
+
+    set -euo pipefail
 
     # Set environment variables for Terraform interpolation
     export LAMBDA_ADMIN_ROLE_ARN="${aws_iam_role.lambda_admin.arn}"
     export AWS_DEFAULT_REGION="${var.region}"
 
-    # Execute the embedded bootstrap script
-    bash <(cat << 'BOOTSTRAP_EOF'
-${file("${path.module}/user_data.sh")}
-BOOTSTRAP_EOF
-)
+    # Create required directories
+    mkdir -p /opt/cnappuccino/state /tmp/cnappuccino-setup 2>/dev/null || true
+
+    # Download and execute the full bootstrap script from GitHub
+    echo "=== Downloading CNAPPuccino Bootstrap Script ==="
+    if curl -fsSL --connect-timeout 30 --max-time 60 \
+        "https://raw.githubusercontent.com/adilio/CNAPPuccino/main/terraform/user_data.sh" \
+        -o /tmp/bootstrap.sh; then
+
+        echo "✅ Bootstrap script downloaded successfully"
+        chmod +x /tmp/bootstrap.sh
+
+        # Execute the bootstrap script
+        echo "🚀 Executing bootstrap script..."
+        bash /tmp/bootstrap.sh
+
+    else
+        echo "❌ Failed to download bootstrap script from GitHub"
+        echo "Falling back to minimal setup..."
+
+        # Minimal fallback setup
+        apt-get update -qq && apt-get install -yq apache2 curl
+        systemctl enable apache2 && systemctl start apache2
+
+        # Create basic CGI script
+        mkdir -p /usr/lib/cgi-bin
+        cat > /usr/lib/cgi-bin/exec.cgi << 'EOF'
+#!/bin/bash
+echo "Content-type: text/plain"
+echo ""
+echo "CNAPPuccino CGI Endpoint - Fallback Mode"
+echo "Bootstrap script download failed, running in minimal mode"
+EOF
+        chmod +x /usr/lib/cgi-bin/exec.cgi
+
+        echo "✅ Minimal setup complete - basic functionality available"
+    fi
   EOT
 
   tags = merge(local.common_tags, { Name = "cnappuccino-host" })

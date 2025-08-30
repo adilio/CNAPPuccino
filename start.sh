@@ -437,7 +437,7 @@ terraform_apply() {
    echo "${CYAN}Expected Bootstrap Timeline:${RESET}"
    echo "• ${BOLD}0-2 min${RESET}: Initial setup and package downloads"
    echo "• ${BOLD}2-5 min${RESET}: Installing vulnerable packages (Ubuntu 14.04 repos)"
-   echo "• ${BOLD}5-8 min${RESET}: Downloading assets from S3"
+   echo "• ${BOLD}5-8 min${RESET}: Downloading assets from GitHub"
    echo "• ${BOLD}8-10 min${RESET}: Configuring Apache/Nginx services"
    echo "• ${BOLD}10-12 min${RESET}: Starting services and validation"
    echo "${RED}⚠️  Total expected time: 10-15 minutes${RESET}"
@@ -510,7 +510,7 @@ terraform_destroy() {
 }
 
 # Helper functions for AWS cleanup operations
-retry_aws_operationeration() {
+retry_aws_operation() {
   local max_attempts=5
   local attempt=1
   local cmd="$1"
@@ -540,7 +540,7 @@ cleanup_network_interfaces() {
       eni_ids=$(aws --profile "$AWS_PROFILE" ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$vpc_id" --query "NetworkInterfaces[?Status!='in-use'].NetworkInterfaceId" --output text 2>/dev/null || echo "")
       if [[ -n "$eni_ids" && "$eni_ids" != "None" ]]; then
         for eni_id in $eni_ids; do
-          retry_aws_operationeration "aws --profile '$AWS_PROFILE' ec2 delete-network-interface --network-interface-id '$eni_id'" "delete ENI $eni_id"
+          retry_aws_operation "aws --profile '$AWS_PROFILE' ec2 delete-network-interface --network-interface-id '$eni_id'" "delete ENI $eni_id"
         done
       fi
     done
@@ -579,7 +579,7 @@ cleanup_security_groups() {
       sg_ids=$(aws --profile "$AWS_PROFILE" ec2 describe-security-groups --filters "Name=vpc-id,Values=$vpc_id" "Name=group-name,Values=!default" --query "SecurityGroups[].GroupId" --output text 2>/dev/null || echo "")
       if [[ -n "$sg_ids" && "$sg_ids" != "None" ]]; then
         for sg_id in $sg_ids; do
-          retry_aws_operationeration "aws --profile '$AWS_PROFILE' ec2 delete-security-group --group-id '$sg_id'" "delete security group $sg_id"
+          retry_aws_operation "aws --profile '$AWS_PROFILE' ec2 delete-security-group --group-id '$sg_id'" "delete security group $sg_id"
         done
       fi
     done
@@ -596,7 +596,7 @@ cleanup_route_tables() {
       rt_assoc_ids=$(aws --profile "$AWS_PROFILE" ec2 describe-route-tables --filters "Name=vpc-id,Values=$vpc_id" --query "RouteTables[].Associations[?Main==\`false\`].RouteTableAssociationId" --output text 2>/dev/null || echo "")
       if [[ -n "$rt_assoc_ids" && "$rt_assoc_ids" != "None" ]]; then
         for assoc_id in $rt_assoc_ids; do
-          retry_aws_operationeration "aws --profile '$AWS_PROFILE' ec2 disassociate-route-table --association-id '$assoc_id'" "disassociate route table $assoc_id"
+          retry_aws_operation "aws --profile '$AWS_PROFILE' ec2 disassociate-route-table --association-id '$assoc_id'" "disassociate route table $assoc_id"
         done
       fi
       
@@ -605,7 +605,7 @@ cleanup_route_tables() {
       rt_ids=$(aws --profile "$AWS_PROFILE" ec2 describe-route-tables --filters "Name=vpc-id,Values=$vpc_id" --query "RouteTables[?Associations[0].Main==\`false\`].RouteTableId" --output text 2>/dev/null || echo "")
       if [[ -n "$rt_ids" && "$rt_ids" != "None" ]]; then
         for rt_id in $rt_ids; do
-          retry_aws_operationeration "aws --profile '$AWS_PROFILE' ec2 delete-route-table --route-table-id '$rt_id'" "delete route table $rt_id"
+          retry_aws_operation "aws --profile '$AWS_PROFILE' ec2 delete-route-table --route-table-id '$rt_id'" "delete route table $rt_id"
         done
       fi
     done
@@ -624,9 +624,9 @@ cleanup_iam_resources() {
       local roles
       roles=$(aws --profile "$AWS_PROFILE" iam get-instance-profile --instance-profile-name "$profile" --query "InstanceProfile.Roles[].RoleName" --output text 2>/dev/null || echo "")
       for role in $roles; do
-        retry_aws_operationeration "aws --profile '$AWS_PROFILE' iam remove-role-from-instance-profile --instance-profile-name '$profile' --role-name '$role'" "remove role $role from instance profile $profile"
+        retry_aws_operation "aws --profile '$AWS_PROFILE' iam remove-role-from-instance-profile --instance-profile-name '$profile' --role-name '$role'" "remove role $role from instance profile $profile"
       done
-      retry_aws_operationeration "aws --profile '$AWS_PROFILE' iam delete-instance-profile --instance-profile-name '$profile'" "delete instance profile $profile"
+      retry_aws_operation "aws --profile '$AWS_PROFILE' iam delete-instance-profile --instance-profile-name '$profile'" "delete instance profile $profile"
     done
   fi
   
@@ -639,17 +639,17 @@ cleanup_iam_resources() {
       local managed_policies
       managed_policies=$(aws --profile "$AWS_PROFILE" iam list-attached-role-policies --role-name "$role" --query "AttachedPolicies[].PolicyArn" --output text 2>/dev/null || echo "")
       for policy_arn in $managed_policies; do
-        retry_aws_operationeration "aws --profile '$AWS_PROFILE' iam detach-role-policy --role-name '$role' --policy-arn '$policy_arn'" "detach policy $policy_arn from role $role"
+        retry_aws_operation "aws --profile '$AWS_PROFILE' iam detach-role-policy --role-name '$role' --policy-arn '$policy_arn'" "detach policy $policy_arn from role $role"
       done
       
       # Delete inline policies
       local inline_policies
       inline_policies=$(aws --profile "$AWS_PROFILE" iam list-role-policies --role-name "$role" --query "PolicyNames" --output text 2>/dev/null || echo "")
       for policy_name in $inline_policies; do
-        retry_aws_operationeration "aws --profile '$AWS_PROFILE' iam delete-role-policy --role-name '$role' --policy-name '$policy_name'" "delete inline policy $policy_name from role $role"
+        retry_aws_operation "aws --profile '$AWS_PROFILE' iam delete-role-policy --role-name '$role' --policy-name '$policy_name'" "delete inline policy $policy_name from role $role"
       done
       
-      retry_aws_operationeration "aws --profile '$AWS_PROFILE' iam delete-role --role-name '$role'" "delete role $role"
+      retry_aws_operation "aws --profile '$AWS_PROFILE' iam delete-role --role-name '$role'" "delete role $role"
     done
   fi
 }
@@ -703,7 +703,7 @@ terraform_nuke() {
       eni_ids=$(aws --profile "$AWS_PROFILE" ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$vpc_id" --query "NetworkInterfaces[?Status!='in-use'].NetworkInterfaceId" --output text 2>/dev/null || echo "")
       if [[ -n "$eni_ids" && "$eni_ids" != "None" ]]; then
         for eni_id in $eni_ids; do
-          retry_aws_operationeration "aws --profile '$AWS_PROFILE' ec2 delete-network-interface --network-interface-id '$eni_id'" "delete ENI $eni_id"
+          retry_aws_operation "aws --profile '$AWS_PROFILE' ec2 delete-network-interface --network-interface-id '$eni_id'" "delete ENI $eni_id"
         done
       fi
     done
@@ -1072,7 +1072,7 @@ show_phase_descriptions() {
    local descriptions=(
      "Setting up directories, hostname, and environment"
      "Installing vulnerable packages (Ubuntu 14.04 repos) - LONGEST PHASE"
-     "Downloading assets from S3"
+     "Downloading assets from GitHub"
      "Configuring Apache with CGI support"
      "Configuring Nginx with weak SSL"
      "Starting vulnerable services"
