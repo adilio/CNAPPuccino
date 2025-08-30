@@ -42,7 +42,8 @@ cnappuccino/
 │   ├── main.tf                   # Core AWS infrastructure
 │   ├── variables.tf              # Configurable parameters
 │   ├── outputs.tf                # Connection info and test commands
-│   ├── user_data.sh              # Complete vulnerable environment setup (injected via Terraform)
+│   ├── cloud-init-bootstrap.sh.tmpl  # Stage 1: tiny user_data that downloads Stage 2
+│   ├── user_data.sh              # Stage 2: full vulnerable environment bootstrap (downloaded at runtime)
 │   └── assets/                   # Vulnerable assets and configurations
 │       ├── configs/              # Configuration files for vulnerable services
 │       │   ├── apache-vhost.conf         # Apache virtual host configuration
@@ -124,6 +125,22 @@ CNAPPuccino starts with `0.0.0.0/0` access for initial posture scanning, but can
 export ALLOWED_CIDR="YOUR_IP/32"        # Restrict access from start
 ./start.sh
 ```
+
+### Architecture: Two-Stage Bootstrap
+
+CNAPPuccino uses a resilient two-stage bootstrap to stay under the EC2 16KB user_data limit and improve reliability:
+
+- **Stage 1 (cloud-init, tiny)**: `terraform/cloud-init-bootstrap.sh.tmpl`
+  - Delivered as compressed user_data via `base64gzip(templatefile(...))`
+  - Waits for basic network, ensures `curl` + CA certificates
+  - Downloads Stage 2 from GitHub raw and executes it (warns if checksum changes)
+
+- **Stage 2 (full setup)**: `terraform/user_data.sh`
+  - Installs packages, configures Apache/Nginx/PHP, lays down vulnerable assets
+  - Writes phase status files for the monitor, with robust logging
+  - Provides local fallbacks if GitHub asset downloads fail (CGI, LFI, vhost, Nginx, CIEM script, secrets)
+
+This architecture ensures reliable boots even with transient network hiccups.
 
 ### Two-Stage Testing Approach
 
@@ -217,10 +234,11 @@ CNAPPuccino now includes professional-grade deployment monitoring to eliminate t
 
 **Features:**
 - **Real-time Phase Monitoring**: See exactly which bootstrap phase is running
-- **Expected Timeline**: Clear 10-15 minute timeline with phase-by-phase breakdown
+- **Expected Timeline**: Clear 10–15 minute timeline with phase-by-phase breakdown
 - **Stuck Detection**: Automatic warnings if phases run longer than expected (5+ minutes)
 - **SSH Connectivity Checks**: Validates instance is reachable before monitoring
-- **Phase Descriptions**: Explains what each of the 7 bootstrap phases does
+- **Phase Descriptions**: Explains what each phase does
+- **Faster updates**: Refresh every 3 seconds, showing the last 20 bootstrap log lines
 
 #### **Bootstrap Diagnostics**
 ```bash
@@ -245,12 +263,16 @@ After deployment, the system automatically:
 
 **Expected Bootstrap Timeline:**
 1. **init** (0-1 min) - Setup directories and environment
-2. **packages** (2-5 min) - Install Ubuntu 14.04 vulnerable packages ⭐ **LONGEST PHASE**
-3. **assets** (5-7 min) - Download scripts/configs from S3
+2. **packages** (2-5 min) - Install Ubuntu packages ⭐ **LONGEST PHASE**
+3. **assets** (5-7 min) - Download scripts/configs from GitHub raw (with local fallbacks)
 4. **apache** (7-8 min) - Configure Apache with CGI support
 5. **nginx** (8-9 min) - Configure Nginx with weak SSL
 6. **services** (9-10 min) - Start all vulnerable services
 7. **validation** (10-12 min) - Verify everything works
+
+Notes:
+- If GitHub is slow/unreachable, fallbacks ensure CGI RCE, PHP LFI, and dir listing still work.
+- Apache’s CGI environment includes `LAMBDA_ADMIN_ROLE_ARN` and `AWS_DEFAULT_REGION` for CIEM testing.
 
 ## Vulnerability Overview
 

