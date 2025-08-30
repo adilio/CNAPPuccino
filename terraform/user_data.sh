@@ -260,7 +260,7 @@ bootstrap_phase_packages() {
 
     # Install essential packages only - others can be installed as needed
     local essential_packages=(
-        "curl" "wget" "apache2"
+        "curl" "wget" "apache2" "nginx"
     )
 
     for package in "${essential_packages[@]}"; do
@@ -339,6 +339,9 @@ bootstrap_phase_apache() {
     a2enmod cgi 2>/dev/null || log_warn "⚠️ CGI module not available"
     a2enmod rewrite 2>/dev/null || log_warn "⚠️ Rewrite module not available"
     a2enmod ssl 2>/dev/null || log_warn "⚠️ SSL module not available"
+
+    # Disable conflicting CGI configuration that lacks SetHandler directive
+    a2disconf serve-cgi-bin 2>/dev/null || log_warn "⚠️ serve-cgi-bin not enabled"
 
     # Enable the vulnerable site
     a2ensite 000-default 2>/dev/null || log_warn "⚠️ Could not enable 000-default site"
