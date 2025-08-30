@@ -354,6 +354,9 @@ bootstrap_phase_apache() {
         log_warn "⚠️ Apache configuration has issues, but continuing..."
     fi
 
+    # Restart Apache to apply all configuration changes (required for CGI to work)
+    systemctl restart apache2 2>/dev/null || log_warn "⚠️ Could not restart Apache"
+
     log_info "✅ Apache configuration complete"
 }
 
