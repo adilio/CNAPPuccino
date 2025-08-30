@@ -390,25 +390,36 @@ ensure_service_running() {
 #############################################
 
 bootstrap_phase() {
-    local phase_name="$1"
+    local phase_name="$1"           # e.g., INIT
     local phase_function="$2"
+
+    # Normalize to lowercase keys expected by monitor (init, packages, ...)
+    local phase_key
+    phase_key=$(echo "$phase_name" | tr '[:upper:]' '[:lower:]')
 
     export BOOTSTRAP_PHASE="$phase_name"
     log_info "🚀 Starting phase: $phase_name"
 
-    # Create phase tracking
-    echo "$phase_name" > "$STATE_DIR/current_phase" 2>/dev/null || true
-    echo "$(date -Iseconds)" > "$STATE_DIR/${phase_name}_start_time" 2>/dev/null || true
+    # Create phase tracking for monitor compatibility
+    echo "$phase_key" > "$STATE_DIR/current_phase" 2>/dev/null || true
+    echo "$(date -Iseconds)" > "$STATE_DIR/${phase_key}_start_time" 2>/dev/null || true
+    : > "$STATE_DIR/phase_${phase_key}" 2>/dev/null || true
+    echo "running" > "$STATE_DIR/phase_${phase_key}.status" 2>/dev/null || true
 
     # Execute phase function with error handling
     if "$phase_function" 2>&1; then
-        echo "$(date -Iseconds)" > "$STATE_DIR/${phase_name}_complete_time" 2>/dev/null || true
+        echo "$(date -Iseconds)" > "$STATE_DIR/${phase_key}_complete_time" 2>/dev/null || true
+        echo "completed" > "$STATE_DIR/phase_${phase_key}.status" 2>/dev/null || true
         log_info "✅ Phase completed successfully: $phase_name"
         return 0
     else
         local exit_code=$?
         log_error "❌ Phase failed: $phase_name (exit code: $exit_code)"
-        echo "$(date -Iseconds)" > "$STATE_DIR/${phase_name}_failed_time" 2>/dev/null || true
+        echo "$(date -Iseconds)" > "$STATE_DIR/${phase_key}_failed_time" 2>/dev/null || true
+        echo "failed" > "$STATE_DIR/phase_${phase_key}.status" 2>/dev/null || true
+        echo "$phase_key" > "$STATE_DIR/failed_phase" 2>/dev/null || true
+        echo "$exit_code" > "$STATE_DIR/last_error_code" 2>/dev/null || true
+        # Keep going to allow other phases to try; overall status stays 'started'
         return 1
     fi
 }

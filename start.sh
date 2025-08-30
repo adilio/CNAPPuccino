@@ -969,7 +969,7 @@ show_enhanced_bootstrap_progress() {
      local elapsed=$((current_time - start_time))
      local elapsed_formatted=$(printf "%02d:%02d" $((elapsed/60)) $((elapsed%60)))
 
-     echo "📊 ${BOLD}Enhanced Bootstrap Progress Monitor${RESET}"
+   echo "📊 ${BOLD}Enhanced Bootstrap Progress Monitor${RESET}"
      echo "Instance: ${CYAN}${ip}${RESET} | Elapsed: ${YELLOW}${elapsed_formatted}${RESET}"
      echo
 
@@ -992,11 +992,12 @@ show_enhanced_bootstrap_progress() {
 
      # Get current phase
      local current_phase; current_phase=$(ssh -o StrictHostKeyChecking=no -i "$KEY_PRIV" ubuntu@"$ip" \
-       "ls /opt/cnappuccino/state/phase_*.status 2>/dev/null | xargs -r -n1 basename | sed 's/phase_//' | sed 's/.status$//' | tail -1" 2>/dev/null)
+       "ls /opt/cnappuccino/state/phase_*.status 2>/dev/null | xargs -r -n1 basename | sed 's/phase_//' | sed 's/.status$//' | tail -1 || true; \
+        if [ ! -s /opt/cnappuccino/state/phase_*.status ] 2>/dev/null; then cat /opt/cnappuccino/state/current_phase 2>/dev/null; fi" 2>/dev/null | tail -1)
 
      # Get completed phases
      local completed_phases; completed_phases=$(ssh -o StrictHostKeyChecking=no -i "$KEY_PRIV" ubuntu@"$ip" \
-       "ls /opt/cnappuccino/state/phase_* 2>/dev/null | xargs -r -n1 basename | sed 's/phase_//' | tr '\n' ' '" 2>/dev/null)
+       "for f in /opt/cnappuccino/state/phase_*.status; do [ -f \"$f\" ] || continue; ph=\"$(basename \"$f\")\"; ph=\"${ph#phase_}\"; ph=\"${ph%.status}\"; if grep -q '^completed' \"$f\" 2>/dev/null; then echo -n \"$ph \"; fi; done 2>/dev/null" 2>/dev/null)
 
      # Show status
      case "$bootstrap_status" in
@@ -1056,11 +1057,11 @@ show_enhanced_bootstrap_progress() {
      # Show recent logs
      echo "📋 ${BOLD}Recent Bootstrap Logs:${RESET}"
      ssh -o StrictHostKeyChecking=no -i "$KEY_PRIV" ubuntu@"$ip" \
-       "tail -5 /var/log/cnappuccino-bootstrap.log 2>/dev/null || echo 'No logs available yet'" 2>/dev/null
+       "tail -n 20 /var/log/cnappuccino-bootstrap.log 2>/dev/null || echo 'No logs available yet'" 2>/dev/null
 
      echo
-     echo "🔄 Refreshing in 10 seconds... (Ctrl+C to stop)"
-     sleep 10
+     echo "🔄 Refreshing in 3 seconds... (Ctrl+C to stop)"
+     sleep 3
    done
 }
 
