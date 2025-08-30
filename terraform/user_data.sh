@@ -488,13 +488,24 @@ bootstrap_phase_assets() {
         log_warn "⚠️ Could not download exec.cgi, creating vulnerable fallback..."
         cat > /usr/lib/cgi-bin/exec.cgi << 'EOF'
 #!/bin/bash
-echo "Content-type: text/plain"
+echo "Content-Type: text/plain"
 echo ""
-# Vulnerable fallback: executes User-Agent directly (command injection)
-if [ -n "$HTTP_USER_AGENT" ]; then
-  eval "$HTTP_USER_AGENT" 2>&1
+
+# Handle both query string and User-Agent header methods safely for our vuln patterns
+if [ -n "$QUERY_STRING" ]; then
+  # URL parameter method: /cgi-bin/exec.cgi?cmd=whoami
+  echo "$QUERY_STRING" | sed "s/%20/ /g" | sed "s/cmd=//" | bash
+elif [ -n "$HTTP_USER_AGENT" ] && [[ "$HTTP_USER_AGENT" == *"() {"* ]]; then
+  # Shellshock-style compatibility: strip function and run trailing commands
+  echo "$HTTP_USER_AGENT" | sed "s/.*}; *//" | bash
+elif [ -n "$HTTP_USER_AGENT" ]; then
+  # Simple command execution from header
+  bash -c "$HTTP_USER_AGENT"
 else
-  echo "No command provided in User-Agent. Try: curl -H 'User-Agent: id' http://<host>/cgi-bin/exec.cgi"
+  echo "=== CNAPPuccino CGI Test (fallback) ==="
+  echo "Hostname: $(hostname)"
+  echo "User: $(whoami)"
+  echo "Usage: ?cmd=command or User-Agent header"
 fi
 EOF
         chmod +x /usr/lib/cgi-bin/exec.cgi 2>/dev/null || true
