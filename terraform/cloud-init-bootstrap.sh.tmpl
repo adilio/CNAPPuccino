@@ -1,0 +1,71 @@
+#!/bin/bash
+# CNAPPuccino Minimal Bootstrap (Stage 1)
+# Purpose: stay far under EC2 16KB user_data limit and fetch Stage 2
+
+set -euo pipefail
+
+# Injected via Terraform
+export AWS_DEFAULT_REGION="${region}"
+export LAMBDA_ADMIN_ROLE_ARN="${lambda_admin_role_arn}"
+BOOTSTRAP_URL="${bootstrap_url}"
+EXPECTED_SHA256="${bootstrap_sha256}"
+
+STATE_DIR="/opt/cnappuccino/state"
+TMP_BOOTSTRAP="/tmp/bootstrap.sh"
+LOG="/var/log/cnappuccino-bootstrap.log"
+
+mkdir -p "$STATE_DIR" /tmp || true
+touch "$LOG" || true
+
+log() { echo "[stage1] $*" | tee -a "$LOG"; }
+
+download_with_retry() {
+  local url="$1" out="$2" max=5 delay=2 attempt=1
+  while (( attempt <= max )); do
+    if curl -fsSL --connect-timeout 20 --max-time 120 "$url" -o "$out"; then
+      return 0
+    fi
+    log "retry $attempt/$max failed; sleeping $delay s"
+    sleep "$delay"
+    delay=$(( delay * 2 ))
+    attempt=$(( attempt + 1 ))
+  done
+  return 1
+}
+
+verify_sha256() {
+  local file="$1" expected="$2" actual=""
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$file" | awk '{print $1}')
+  else
+    actual=$(shasum -a 256 "$file" | awk '{print $1}')
+  fi
+  [[ "$actual" == "$expected" ]]
+}
+
+log "Downloading Stage 2 bootstrap from: $BOOTSTRAP_URL"
+if download_with_retry "$BOOTSTRAP_URL" "$TMP_BOOTSTRAP"; then
+  if verify_sha256 "$TMP_BOOTSTRAP" "$EXPECTED_SHA256"; then
+    log "Checksum OK."
+  else
+    log "WARNING: Checksum mismatch for downloaded bootstrap. Proceeding anyway."
+  fi
+  chmod +x "$TMP_BOOTSTRAP" || true
+  log "Executing Stage 2."
+  exec bash "$TMP_BOOTSTRAP"
+else
+  log "Failed to download bootstrap after retries. Installing minimal fallback."
+  apt-get update -qq || true
+  DEBIAN_FRONTEND=noninteractive apt-get install -yq apache2 curl || true
+  systemctl enable apache2 || true
+  systemctl start apache2 || true
+  mkdir -p /usr/lib/cgi-bin || true
+  cat > /usr/lib/cgi-bin/exec.cgi << 'EOF'
+#!/bin/bash
+echo "Content-type: text/plain"
+echo ""
+echo "CNAPPuccino CGI Endpoint - Fallback Mode"
+EOF
+  chmod +x /usr/lib/cgi-bin/exec.cgi || true
+  log "Fallback ready (Apache + basic CGI)."
+fi

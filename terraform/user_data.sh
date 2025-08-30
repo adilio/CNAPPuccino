@@ -31,34 +31,212 @@ chmod 755 /var/lock/apache2 2>/dev/null || true
 ln -sf /run/lock /var/lock 2>/dev/null || true
 
 #############################################
+# NETWORK DIAGNOSTIC FUNCTIONS
+#############################################
+
+# Enhanced network connectivity diagnostics
+check_network_connectivity() {
+    log_info "🌐 Performing comprehensive network connectivity checks..."
+    local connectivity_issues=0
+    
+    # Test basic network connectivity
+    if ! ping -c 3 8.8.8.8 >/dev/null 2>&1; then
+        log_warn "⚠️ No internet connectivity detected (ping 8.8.8.8 failed)"
+        connectivity_issues=$((connectivity_issues + 1))
+    else
+        log_info "✅ Basic internet connectivity: OK"
+    fi
+    
+    # Test DNS resolution
+    if ! nslookup github.com >/dev/null 2>&1; then
+        log_warn "⚠️ DNS resolution issues detected"
+        connectivity_issues=$((connectivity_issues + 1))
+    else
+        log_info "✅ DNS resolution: OK"
+    fi
+    
+    # Test GitHub connectivity specifically
+    if ! curl -fsSL --connect-timeout 10 --max-time 15 --head "https://github.com" >/dev/null 2>&1; then
+        log_warn "⚠️ GitHub.com connectivity issues"
+        connectivity_issues=$((connectivity_issues + 1))
+    else
+        log_info "✅ GitHub.com connectivity: OK"
+    fi
+    
+    # Test raw GitHub content
+    if ! curl -fsSL --connect-timeout 10 --max-time 15 --head "${GITHUB_RAW_BASE}/README.md" >/dev/null 2>&1; then
+        log_warn "⚠️ GitHub raw content access issues"
+        log_warn "    URL tested: ${GITHUB_RAW_BASE}/README.md"
+        connectivity_issues=$((connectivity_issues + 1))
+    else
+        log_info "✅ GitHub raw content access: OK"
+    fi
+    
+    # Report connectivity status
+    if [[ $connectivity_issues -eq 0 ]]; then
+        log_info "🎯 All network connectivity checks passed"
+        return 0
+    else
+        log_warn "⚠️ Network connectivity issues detected ($connectivity_issues checks failed)"
+        log_warn "    Downloads may experience failures or timeouts"
+        return 1
+    fi
+}
+
+#############################################
+# DOWNLOAD STATISTICS TRACKING
+#############################################
+
+# Global download statistics
+DOWNLOAD_STATS_TOTAL=0
+DOWNLOAD_STATS_SUCCESS=0
+DOWNLOAD_STATS_FAILED=0
+DOWNLOAD_STATS_TOTAL_BYTES=0
+DOWNLOAD_STATS_TOTAL_TIME=0
+
+# Log download statistics
+log_download_stats() {
+    log_info "📊 Download Statistics Summary:"
+    log_info "    Total attempts: $DOWNLOAD_STATS_TOTAL"
+    log_info "    Successful: $DOWNLOAD_STATS_SUCCESS"
+    log_info "    Failed: $DOWNLOAD_STATS_FAILED"
+    [[ $DOWNLOAD_STATS_TOTAL -gt 0 ]] && log_info "    Success rate: $(( (DOWNLOAD_STATS_SUCCESS * 100) / DOWNLOAD_STATS_TOTAL ))%"
+    [[ $DOWNLOAD_STATS_TOTAL_BYTES -gt 0 ]] && log_info "    Total downloaded: $DOWNLOAD_STATS_TOTAL_BYTES bytes"
+    [[ $DOWNLOAD_STATS_TOTAL_TIME -gt 0 ]] && log_info "    Total time: ${DOWNLOAD_STATS_TOTAL_TIME}s"
+}
+
+#############################################
 # ASSET DOWNLOAD FUNCTIONS
 #############################################
 
 # Download asset from GitHub with retry logic
+# Enhanced download asset function with robust error handling, exponential backoff, and validation
 download_asset() {
     local asset_path="$1"
     local local_path="$2"
+    local expected_min_size="${3:-1}"  # Optional minimum file size in bytes (default: 1)
+    
     local url="${GITHUB_RAW_BASE}/${asset_path}"
-    local max_retries=3
+    local max_retries=5
     local retry=0
-
-    log_info "Downloading asset: $asset_path -> $local_path"
-
+    local backoff_base=2
+    local connect_timeout=15
+    local max_time=120
+    
+    # Track download statistics
+    DOWNLOAD_STATS_TOTAL=$((DOWNLOAD_STATS_TOTAL + 1))
+    
+    log_info "📥 Starting download: $asset_path"
+    log_info "    URL: $url"
+    log_info "    Target: $local_path"
+    log_info "    Min size: ${expected_min_size} bytes"
+    
     # Create parent directory if it doesn't exist
-    mkdir -p "$(dirname "$local_path")"
-
+    mkdir -p "$(dirname "$local_path")" || {
+        log_error "❌ Failed to create directory: $(dirname "$local_path")"
+        return 1
+    }
+    
+    # Test GitHub connectivity first
+    if ! curl -fsSL --connect-timeout 5 --max-time 10 --head "${GITHUB_RAW_BASE}/README.md" >/dev/null 2>&1; then
+        log_error "❌ GitHub connectivity test failed - network or DNS issues detected"
+        log_error "    Tested URL: ${GITHUB_RAW_BASE}/README.md"
+        return 1
+    fi
+    
     while [[ $retry -lt $max_retries ]]; do
-        if curl -fsSL --connect-timeout 30 --max-time 60 "$url" -o "$local_path"; then
-            log_info "✅ Asset downloaded successfully: $asset_path"
-            return 0
+        local current_attempt=$((retry + 1))
+        local backoff_time=$((backoff_base ** retry))
+        
+        log_info "🔄 Download attempt $current_attempt/$max_retries for: $asset_path"
+        log_info "    Timeout: ${connect_timeout}s connect, ${max_time}s total"
+        
+        # Create temporary file for atomic download
+        local temp_file="${local_path}.tmp.$$"
+        
+        # Attempt download with detailed error reporting
+        local curl_exit_code=0
+        local curl_output
+        curl_output=$(curl -fsSL \
+            --connect-timeout "$connect_timeout" \
+            --max-time "$max_time" \
+            --retry 0 \
+            --show-error \
+            --write-out "HTTPCODE:%{http_code}|SIZE:%{size_download}|TIME:%{time_total}|SPEED:%{speed_download}" \
+            "$url" \
+            -o "$temp_file" 2>&1) || curl_exit_code=$?
+        
+        # Parse curl output for detailed logging
+        local http_code=$(echo "$curl_output" | grep -o 'HTTPCODE:[0-9]*' | cut -d: -f2 2>/dev/null || echo "unknown")
+        local download_size=$(echo "$curl_output" | grep -o 'SIZE:[0-9]*' | cut -d: -f2 2>/dev/null || echo "0")
+        local download_time=$(echo "$curl_output" | grep -o 'TIME:[0-9.]*' | cut -d: -f2 2>/dev/null || echo "unknown")
+        local download_speed=$(echo "$curl_output" | grep -o 'SPEED:[0-9.]*' | cut -d: -f2 2>/dev/null || echo "0")
+        
+        if [[ $curl_exit_code -eq 0 && -f "$temp_file" ]]; then
+            # Validate downloaded file
+            local file_size
+            file_size=$(stat -c%s "$temp_file" 2>/dev/null || echo "0")
+            
+            log_info "    HTTP: $http_code | Size: ${file_size} bytes | Time: ${download_time}s | Speed: ${download_speed} B/s"
+            
+            # Check file size validation
+            if [[ "$file_size" -lt "$expected_min_size" ]]; then
+                log_warn "⚠️ Downloaded file too small: ${file_size} bytes (expected min: ${expected_min_size})"
+                rm -f "$temp_file"
+                curl_exit_code=1
+            # Check for common error responses that might be returned as 200 OK
+            elif grep -q "404: Not Found\|Access Denied\|Repository not found" "$temp_file" 2>/dev/null; then
+                log_warn "⚠️ Download appears to be error page content"
+                rm -f "$temp_file"
+                curl_exit_code=1
+            else
+                # Successful download - move temp file to final location
+                if mv "$temp_file" "$local_path"; then
+                    # Update download statistics
+                    DOWNLOAD_STATS_SUCCESS=$((DOWNLOAD_STATS_SUCCESS + 1))
+                    DOWNLOAD_STATS_TOTAL_BYTES=$((DOWNLOAD_STATS_TOTAL_BYTES + file_size))
+                    [[ "$download_time" != "unknown" && "$download_time" =~ ^[0-9.]+$ ]] && DOWNLOAD_STATS_TOTAL_TIME=$(echo "$DOWNLOAD_STATS_TOTAL_TIME + $download_time" | bc -l 2>/dev/null || echo "$DOWNLOAD_STATS_TOTAL_TIME")
+                    
+                    log_info "✅ Asset downloaded successfully: $asset_path"
+                    log_info "    Final size: ${file_size} bytes"
+                    return 0
+                else
+                    log_error "❌ Failed to move temporary file to final location"
+                    rm -f "$temp_file"
+                    curl_exit_code=1
+                fi
+            fi
         else
-            retry=$((retry + 1))
-            log_warn "⚠️ Download attempt $retry failed for: $asset_path"
-            [[ $retry -lt $max_retries ]] && sleep $((retry * 2))
+            # Download failed
+            log_warn "⚠️ Download failed (exit code: $curl_exit_code)"
+            if [[ -n "$curl_output" ]]; then
+                # Clean up curl output for logging (remove our custom write-out data)
+                local clean_output=$(echo "$curl_output" | sed 's/HTTPCODE:[^|]*|SIZE:[^|]*|TIME:[^|]*|SPEED:[^|]*//g')
+                [[ -n "$clean_output" ]] && log_warn "    Error: $clean_output"
+            fi
+            [[ "$http_code" != "unknown" ]] && log_warn "    HTTP Code: $http_code"
+            rm -f "$temp_file"
         fi
+        
+        # If this was not the last attempt, wait with exponential backoff
+        if [[ $retry -lt $((max_retries - 1)) ]]; then
+            log_info "⏳ Waiting ${backoff_time}s before retry (exponential backoff)..."
+            sleep "$backoff_time"
+        fi
+        
+        retry=$((retry + 1))
     done
-
+    
+    # Update failure statistics
+    DOWNLOAD_STATS_FAILED=$((DOWNLOAD_STATS_FAILED + 1))
+    
     log_error "❌ Failed to download asset after $max_retries attempts: $asset_path"
+    log_error "    Final attempt had exit code: $curl_exit_code"
+    log_error "    This may indicate:"
+    log_error "      - Network connectivity issues"
+    log_error "      - GitHub service problems" 
+    log_error "      - Repository access issues"
+    log_error "      - File not found in repository"
     return 1
 }
 
@@ -239,7 +417,7 @@ bootstrap_phase_init() {
     log_info "Initializing CNAPPuccino bootstrap environment"
     
     # Download vulnerable packages preferences
-    download_asset "configs/cnappuccino-vulnerable-preferences" "/etc/apt/preferences.d/cnappuccino-vulnerable"
+    download_asset "configs/cnappuccino-vulnerable-preferences" "/etc/apt/preferences.d/cnappuccino-vulnerable" 50
     
     # Update package repositories
     log_info "📦 Updating package repositories..."
@@ -293,7 +471,7 @@ bootstrap_phase_assets() {
     mkdir -p /opt/cnappuccino/exploits /usr/lib/cgi-bin /var/www/html 2>/dev/null || true
 
     # Scripts (executable) - try to download but don't fail if unavailable
-    if download_asset "scripts/exec.cgi" "/usr/lib/cgi-bin/exec.cgi"; then
+    if download_asset "scripts/exec.cgi" "/usr/lib/cgi-bin/exec.cgi" 100; then
         chmod +x /usr/lib/cgi-bin/exec.cgi 2>/dev/null || log_warn "⚠️ Could not set exec.cgi permissions"
     else
         log_warn "⚠️ Could not download exec.cgi, creating basic version..."
@@ -305,25 +483,28 @@ bootstrap_phase_assets() {
     fi
 
     # Try to download other scripts but don't fail
-    download_asset "scripts/ciem_test.sh" "/opt/cnappuccino/exploits/ciem_test.sh" || log_warn "⚠️ Could not download ciem_test.sh"
-    download_asset "scripts/command_injection_test.sh" "/opt/cnappuccino/exploits/command_injection_test.sh" || log_warn "⚠️ Could not download command_injection_test.sh"
-    download_asset "scripts/webshell.php" "/opt/cnappuccino/exploits/webshell.php" || log_warn "⚠️ Could not download webshell.php"
+    download_asset "scripts/ciem_test.sh" "/opt/cnappuccino/exploits/ciem_test.sh" 500 || log_warn "⚠️ Could not download ciem_test.sh"
+    download_asset "scripts/command_injection_test.sh" "/opt/cnappuccino/exploits/command_injection_test.sh" 200 || log_warn "⚠️ Could not download command_injection_test.sh"
+    download_asset "scripts/webshell.php" "/opt/cnappuccino/exploits/webshell.php" 200 || log_warn "⚠️ Could not download webshell.php"
 
     # Web content - try to download but don't fail
-    download_asset "web/view.php" "/var/www/html/view.php" || log_warn "⚠️ Could not download view.php"
-    download_asset "web/upload.php" "/var/www/html/upload.php" || log_warn "⚠️ Could not download upload.php"
-    download_asset "web/index.html" "/var/www/html/index.html" || log_warn "⚠️ Could not download index.html"
+    download_asset "web/view.php" "/var/www/html/view.php" 150 || log_warn "⚠️ Could not download view.php"
+    download_asset "web/upload.php" "/var/www/html/upload.php" 300 || log_warn "⚠️ Could not download upload.php"
+    download_asset "web/index.html" "/var/www/html/index.html" 200 || log_warn "⚠️ Could not download index.html"
 
     # Configuration files - try to download but don't fail
-    download_asset "configs/fastcgi-php.conf" "/etc/apache2/snippets/fastcgi-php.conf" || log_warn "⚠️ Could not download fastcgi-php.conf"
-    download_asset "configs/apache-vhost.conf" "/etc/apache2/sites-available/000-default.conf" || log_warn "⚠️ Could not download apache-vhost.conf"
-    download_asset "configs/nginx-vulnerable.conf" "/etc/nginx/sites-available/cnappuccino" || log_warn "⚠️ Could not download nginx-vulnerable.conf"
-    download_asset "configs/cgi-enabled.conf" "/etc/apache2/conf-enabled/cgi-enabled.conf" || log_warn "⚠️ Could not download cgi-enabled.conf"
+    download_asset "configs/fastcgi-php.conf" "/etc/apache2/snippets/fastcgi-php.conf" 100 || log_warn "⚠️ Could not download fastcgi-php.conf"
+    download_asset "configs/apache-vhost.conf" "/etc/apache2/sites-available/000-default.conf" 200 || log_warn "⚠️ Could not download apache-vhost.conf"
+    download_asset "configs/nginx-vulnerable.conf" "/etc/nginx/sites-available/cnappuccino" 300 || log_warn "⚠️ Could not download nginx-vulnerable.conf"
+    download_asset "configs/cgi-enabled.conf" "/etc/apache2/conf-enabled/cgi-enabled.conf" 150 || log_warn "⚠️ Could not download cgi-enabled.conf"
 
     # Set proper permissions
     chmod +x /opt/cnappuccino/exploits/*.sh 2>/dev/null || true
     chown -R www-data:www-data /var/www/html/ 2>/dev/null || true
 
+    # Log download statistics
+    log_download_stats
+    
     log_info "✅ Asset installation complete (with fallbacks for missing files)"
 }
 
@@ -467,6 +648,10 @@ main() {
     # Create state tracking
     echo "started" > "$STATE_DIR/bootstrap_status" 2>/dev/null || true
     echo "$(date -Iseconds)" > "$STATE_DIR/bootstrap_start_time" 2>/dev/null || true
+
+    # Perform network connectivity checks early
+    log_info "📡 Pre-flight network diagnostics..."
+    check_network_connectivity || log_warn "⚠️ Network issues detected, proceeding with caution..."
 
     # Execute bootstrap phases with individual error handling
     log_info "🚀 Executing bootstrap phases..."
