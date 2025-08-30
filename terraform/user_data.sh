@@ -501,7 +501,70 @@ EOF
     fi
 
     # Try to download other scripts but don't fail
-    download_asset "scripts/ciem_test.sh" "/opt/cnappuccino/exploits/ciem_test.sh" 500 || log_warn "⚠️ Could not download ciem_test.sh"
+    if download_asset "scripts/ciem_test.sh" "/opt/cnappuccino/exploits/ciem_test.sh" 500; then
+        chmod +x /opt/cnappuccino/exploits/ciem_test.sh 2>/dev/null || true
+    else
+        log_warn "⚠️ Could not download ciem_test.sh, creating minimal fallback..."
+        cat > /opt/cnappuccino/exploits/ciem_test.sh << 'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+LAMBDA_NAME="cnappuccino-backdoor-test"
+ROLE_ARN="${LAMBDA_ADMIN_ROLE_ARN:-}"
+REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+MODE="simulate"
+[[ $# -gt 0 ]] && [[ "$1" == "--execute" || "$1" == "--simulate" || "$1" == "--undo" ]] && MODE="${1#--}"
+
+echo "[MODE] $MODE"
+if [[ -z "$ROLE_ARN" ]]; then
+  echo "[ERROR] LAMBDA_ADMIN_ROLE_ARN not set"
+  exit 2
+fi
+
+assume_role() {
+  local sess="CNAPPuccinoTest"
+  local creds
+  creds=$(aws sts assume-role --role-arn "$ROLE_ARN" --role-session-name "$sess" --region "$REGION" 2>/dev/null || true)
+  if [[ -z "$creds" ]]; then
+    echo "[ERROR] Failed to assume role: $ROLE_ARN"; return 1
+  fi
+  export AWS_ACCESS_KEY_ID=$(echo "$creds" | jq -r '.Credentials.AccessKeyId')
+  export AWS_SECRET_ACCESS_KEY=$(echo "$creds" | jq -r '.Credentials.SecretAccessKey')
+  export AWS_SESSION_TOKEN=$(echo "$creds" | jq -r '.Credentials.SessionToken')
+  echo "[ASSUME] Using elevated credentials"
+}
+
+simulate() {
+  echo "[SIMULATE] Would assume role: $ROLE_ARN and create Lambda: $LAMBDA_NAME"
+}
+
+execute() {
+  assume_role || { echo "[FALLBACK] Showing Lambda list instead"; aws lambda list-functions --region "$REGION" | head -n 5 || true; return 1; }
+  tmpdir="/var/www/html/tmp"; mkdir -p "$tmpdir"; chmod 777 "$tmpdir"
+  echo 'def lambda_handler(event, context):\n  return "CNAPPuccino_Test"' > "$tmpdir/lambda_function.py"
+  (cd "$tmpdir" && zip -q function.zip lambda_function.py)
+  echo "[CREATE] Lambda: $LAMBDA_NAME"
+  if aws lambda create-function --function-name "$LAMBDA_NAME" --runtime python3.9 --role "$ROLE_ARN" --handler lambda_function.lambda_handler --zip-file fileb://"$tmpdir/function.zip" --region "$REGION" >/dev/null 2>&1; then
+    echo "[SUCCESS] Lambda created"
+  else
+    echo "[WARN] Lambda creation failed (likely role mismatch); listing functions instead"
+    aws lambda list-functions --region "$REGION" | head -n 5 || true
+  fi
+  rm -f "$tmpdir/function.zip" "$tmpdir/lambda_function.py"
+}
+
+undo() {
+  assume_role || true
+  aws lambda delete-function --function-name "$LAMBDA_NAME" --region "$REGION" >/dev/null 2>&1 && echo "[SUCCESS] Lambda deleted" || echo "[INFO] Lambda not present"
+}
+
+case "$MODE" in
+  simulate) simulate ;;
+  execute) execute ;;
+  undo) undo ;;
+esac
+EOF
+        chmod +x /opt/cnappuccino/exploits/ciem_test.sh 2>/dev/null || true
+    fi
     download_asset "scripts/command_injection_test.sh" "/opt/cnappuccino/exploits/command_injection_test.sh" 200 || log_warn "⚠️ Could not download command_injection_test.sh"
     download_asset "scripts/webshell.php" "/opt/cnappuccino/exploits/webshell.php" 200 || log_warn "⚠️ Could not download webshell.php"
 
@@ -806,6 +869,16 @@ create_secret_files() {
     echo "DB_PASSWORD=super_secret_password_123" > /var/www/html/.env
     echo "API_KEY=sk-1234567890abcdef" >> /var/www/html/.env
     chmod 644 /var/www/html/.env
+    
+    # Create directory and fake AWS creds for credential harvesting stage
+    mkdir -p /opt/cnappuccino/secret 2>/dev/null || true
+    cat > /opt/cnappuccino/secret/aws_creds.txt << 'EOF'
+[default]
+aws_access_key_id=AKIAFAKE123456789
+aws_secret_access_key=abcdEFGHijklMNOPqrstUVWXyz1234567890
+region=us-east-1
+EOF
+    chmod 600 /opt/cnappuccino/secret/aws_creds.txt 2>/dev/null || true
     
     log_info "✅ Secret files created"
 }
