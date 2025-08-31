@@ -16,20 +16,26 @@ Intentionally vulnerable Ubuntu lab for CSPM and runtime testing. Deploys on AWS
 ## Repository Structure
 ```
 cnappuccino/
-├── README.md                     # Overview and usage
-├── RUNTIME_TESTING.md            # Detailed testing guide
-├── start.sh                      # Interactive TUI + CLI
-├── terraform/
-│   ├── main.tf                   # AWS infrastructure
-│   ├── variables.tf              # Inputs
-│   ├── outputs.tf                # Outputs (IP, IDs)
-│   ├── cloud-init-bootstrap.sh.tmpl  # Stage 1 (tiny user_data)
-│   ├── user_data.sh              # Stage 2 (full bootstrap)
+├── README.md                       # Overview and usage
+├── RUNTIME_TESTING.md              # Detailed testing guide
+├── LICENSE                         # License
+├── start.sh                        # Interactive TUI + CLI (menu + flags)
+├── terraform/                      # Infrastructure as Code
+│   ├── main.tf                     # AWS infra (VPC, SG, EC2, IAM)
+│   ├── variables.tf                # Inputs (region, owner, etc.)
+│   ├── outputs.tf                  # Outputs (public_ip, ids)
+│   ├── versions.tf                 # Provider constraints
+│   ├── cloud-init-bootstrap.sh.tmpl# Stage 1 (tiny user_data)
+│   ├── user_data.sh                # Stage 2 (full bootstrap)
 │   └── assets/
-│       ├── configs/              # Apache/Nginx/PHP configs
-│       ├── scripts/              # exec.cgi, ciem_test.sh, tests
-│       └── web/                  # index.html, view.php, upload.php
-└── cnappuccino-state/            # Local keys/state (gitignored)
+│       ├── configs/                # Apache/Nginx/PHP configs
+│       ├── scripts/                # exec.cgi, ciem_test.sh, tests
+│       └── web/                    # index.html, view.php, upload.php
+├── testing/                        # Local test harness (optional)
+│   ├── README.md                   # Local testing docs
+│   ├── test_user_data.sh           # Local runner
+│   └── docker/                     # Containerized test env
+└── cnappuccino-state/              # Local keys/state (gitignored)
 ```
 
 ## Architecture (2‑Stage Bootstrap)
@@ -81,14 +87,15 @@ Examples:
 
 ## Fast Validation (no soak)
 - Quick RCE: Menu Option 3
-- Manual checks (replace IP):
-  - `curl -s -H "User-Agent: () { :; }; whoami" http://IP/cgi-bin/exec.cgi`
-  - `curl -s -H "User-Agent: id; hostname; uname -a" http://IP/cgi-bin/exec.cgi`
-  - `curl -s "http://IP/view.php?file=/etc/passwd"`
-  - `curl -s "http://IP:8080/secret/"`
+- Manual checks:
+  - `export TARGET_IP=$(cd terraform && terraform output -raw public_ip)`
+  - `curl -s -H "User-Agent: () { :; }; whoami" http://$TARGET_IP/cgi-bin/exec.cgi`
+  - `curl -s -H "User-Agent: id; hostname; uname -a" http://$TARGET_IP/cgi-bin/exec.cgi`
+  - `curl -s "http://$TARGET_IP/view.php?file=/etc/passwd"`
+  - `curl -s "http://$TARGET_IP:8080/secret/"`
 
 ## Runtime Exploits (Option 5)
-- Five stages: recon, credential harvesting, file/process enum, CIEM
+- Five stages: system recon, credential harvesting, file enumeration, process enumeration, CIEM
 - CIEM uses `LAMBDA_ADMIN_ROLE_ARN` (injected into Apache CGI env) to attempt assume‑role and create a Lambda
 - Recommended after 24h soak; can run immediately for demo
 
@@ -104,24 +111,56 @@ Examples:
 - Upload: `http://<ip>/upload.php`
 - Directory listing: `http://<ip>:8080/secret/`
 
-## Vulnerability Matrix (selected)
-| Vulnerability                                | CVE            | OWASP     | MITRE                           | Endpoint/Vector                                  |
-|----------------------------------------------|----------------|-----------|---------------------------------|--------------------------------------------------|
-| Shellshock‑style CGI command injection       | CVE‑2014‑6271* | A06:2021  | T1059.004, T1190               | `http://IP/cgi-bin/exec.cgi` (User‑Agent header) |
-| Heartbleed (weak SSL example)                | CVE‑2014‑0160  | A06:2021  | T1005, T1040                   | `https://IP:8443`                                |
-| PHP Local File Inclusion                     | —              | A03:2021  | T1005, T1083                   | `http://IP/view.php?file=…`                      |
-| Unrestricted File Upload                     | —              | A03/A04   | T1105, T1059.004               | `http://IP/upload.php`                           |
-| Directory Listing                            | —              | A01/A05   | T1083, T1552.001               | `http://IP:8080/secret/`                         |
-| Weak SSH / Hardcoded secrets / IMDSv1, etc.  | —              | A07/A09   | T1110.001, T1552.006, others   | System‑wide                                      |
+## Vulnerability Matrix
+| Vulnerability                                | CVE            | OWASP          | MITRE                               | Endpoint/Vector                                   |
+|----------------------------------------------|----------------|----------------|-------------------------------------|---------------------------------------------------|
+| Shellshock‑style CGI command injection       | CVE‑2014‑6271* | A06:2021       | T1059.004 (Unix Shell), T1190       | `http://IP/cgi-bin/exec.cgi` (User‑Agent header)  |
+| Heartbleed (weak SSL example)                | CVE‑2014‑0160  | A06:2021       | T1005, T1040                        | `https://IP:8443`                                 |
+| PHP Local File Inclusion                     | —              | A03:2021       | T1005, T1083                        | `http://IP/view.php?file=…`                       |
+| Unrestricted File Upload                     | —              | A03/A04:2021   | T1105, T1059.004                    | `http://IP/upload.php`                            |
+| Directory Listing                            | —              | A01/A05:2021   | T1083, T1552.001                    | `http://IP:8080/secret/`                          |
+| Weak SSH (password auth enabled)             | —              | A07:2021       | T1110.001, T1078.003                | `ssh ubuntu@IP`                                   |
+| Hardcoded Secrets                            | —              | A07/A09:2021   | T1552.001, T1078                    | `/var/www/html/.env`, `/opt/cnappuccino/secret/`  |
+| Disabled Firewall (ufw)                      | —              | A05:2021       | T1562.004                           | System‑wide                                       |
+| Weak SSL/TLS                                 | —              | A02/A05:2021   | T1040, T1557                        | `https://IP:8443`                                 |
+| IMDSv1 Enabled                               | —              | A05:2021       | T1552.006                            | EC2 Metadata Service                              |
+| End‑of‑Life OS                               | Multiple       | A06:2021       | T1082                               | System‑wide                                       |
 
 \*Shellshock function‑import is patched; exploitation here is direct command injection via header.
 
 ## Troubleshooting
-- Status: `./start.sh status`
-- Monitor again: run the enhanced monitor from deploy
-- SSH + logs: `ssh ubuntu@<ip>` then `sudo tail -n 50 /var/log/cnappuccino-bootstrap.log`
-- Services: `systemctl status apache2 nginx` and ports: `ss -tlnp | grep -E ':(80|8080|8443|22) '`
-- Redeploy clean: Option 8 then Option 2
+
+### Deployment & Bootstrap
+- Check status: `./start.sh status`
+- Enhanced monitor: choose it during Option 2 (refresh 3s, last 20 log lines)
+- Instance logs: `ssh ubuntu@<ip>` then `sudo tail -n 100 /var/log/cnappuccino-bootstrap.log`
+- Services: `systemctl status apache2 nginx ssh --no-pager`
+- Ports: `ss -tlnp | grep -E ':(80|8080|8443|22) '` or `netstat -tlnp`
+- Clean redeploy: Option 8 (Cleanup), then Option 2 (Deploy)
+
+Common issues
+- CGI 404 on `/cgi-bin/exec.cgi`:
+  - Cause: Apache vhost not present; asset download hiccup
+  - Fix: Stage 2 now writes a fallback vhost + CGI script; `sudo systemctl restart apache2`
+- LFI 404 on `/view.php`:
+  - Cause: Asset download hiccup
+  - Fix: Stage 2 creates a vulnerable fallback `view.php`
+- Nginx `:8080` not listing:
+  - Cause: Site config missing
+  - Fix: Stage 2 creates a fallback site; `sudo nginx -t && sudo systemctl restart nginx`
+- CIEM shows `LAMBDA_ADMIN_ROLE_ARN not set`:
+  - Cause: CGI env lacked role ARN
+  - Fix: Stage 2 injects `SetEnv`; ensure Apache restarted
+- Credential file permission denied:
+  - Cause: restrictive perms
+  - Fix: Stage 2 sets `/opt/cnappuccino/secret` 755 and `aws_creds.txt` 644
+- GitHub downloads fail:
+  - Stage 1 waits for network, installs CA certs, retries; Stage 2 has local fallbacks
+
+Terraform issues
+- Re‑init providers: `cd terraform && terraform init -upgrade`
+- Show plan/apply errors: `terraform plan` then `terraform apply`
+- Get instance IP: `terraform output -raw public_ip`
 
 ## Notes
 - User data size: ≤ 16 KB (Stage 1 only). Stage 2 is downloaded at runtime
