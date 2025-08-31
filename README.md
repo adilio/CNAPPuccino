@@ -103,7 +103,7 @@ Examples:
 - Enhanced progress (offered during deploy)
   - Real‑time phase + last 20 log lines; refresh every 3s
   - Logs on instance: `/var/log/cnappuccino-bootstrap.log`
-- Diagnostics: Option 9 (services, ports, recent logs)
+- Diagnostics: Option 4 (Lab Status & Diagnostics)
 
 ## Vulnerable Endpoints
 - CGI RCE: `http://<ip>/cgi-bin/exec.cgi`
