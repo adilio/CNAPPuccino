@@ -1553,15 +1553,15 @@ main_menu() {
    export CNAPPUCCINO_MENU_SG="$_sg"
    export CNAPPUCCINO_MENU_SSH="$_ssh"
    cat <<MENU
- 1) ⚙️ Lab Configuration
- 2) 🚀 Deploy Lab (Stage 1)
- 3) 🧪 Quick RCE Test
- 4) 📊 Lab Status & Diagnostics
- 5) ⚡ Multi-Stage Runtime Exploits (Stage 2)
- 6) 📖 Testing Guide
- 7) 💻 SSH
- 8) 🧹 Cleanup
- 9) 🚪 Quit
+ 1) Lab Configuration
+ 2) Deploy Lab (Stage 1)
+ 3) Quick RCE Test
+ 4) Lab Status & Diagnostics
+ 5) Multi-Stage Runtime Exploits (Stage 2)
+ 6) Testing Guide
+ 7) SSH
+ 8) Cleanup
+ 9) Quit
  
 MENU
    read -r -p "Select option: " choice || true
