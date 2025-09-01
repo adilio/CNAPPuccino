@@ -159,7 +159,7 @@ An Ubuntu 16.04 environment with:
 | SSH | 22 | Remote access | Weak authentication |
 | MySQL | 3306 | Database | Default configuration |
 
-## CSMP Tool Testing
+## CSPM Tool Testing
 
 Point your security scanner at the deployed instance to test detection of:
 - End-of-life operating systems and missing patches
