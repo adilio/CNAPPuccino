@@ -35,6 +35,31 @@ chmod +x start.sh && ./start.sh
 # Your vulnerable environment will be ready in 10-15 minutes
 ```
 
+## Repository Structure
+
+```
+cnappuccino/
+├── README.md                     # Overview and quick start
+├── RUNTIME_TESTING.md            # Comprehensive CSPM testing guide
+├── start.sh                      # Interactive TUI for deployment and testing
+├── .gitignore                    # Excludes sensitive files and state
+├── terraform/                    # Infrastructure as Code
+│   ├── main.tf                   # Core AWS infrastructure
+│   ├── variables.tf              # Configurable parameters
+│   ├── outputs.tf                # Connection info and test commands
+│   └── user_data.sh              # Complete vulnerable environment setup (injected via Terraform)
+├── testing/                      # Local testing and development tools
+│   ├── README.md                 # Testing documentation
+│   ├── test_user_data.sh         # Local script validation runner
+│   └── docker/                   # Docker-based test environment
+│       ├── Dockerfile            # Ubuntu 16.04 test container
+│       ├── docker-compose.yml    # Container orchestration
+│       └── run_test.sh           # Container test runner
+└── cnappuccino-state/            # Gitignored - Local state and SSH keys
+    ├── cnappuccino-key           # Auto-generated SSH private key
+    └── cnappuccino-key.pub       # Auto-generated SSH public key
+```
+
 ## CLI Usage (non-interactive)
 ```bash
 ./start.sh [flags] <command>
