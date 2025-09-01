@@ -189,9 +189,9 @@ need() {
 get_lab_status() {
   local ip; ip=$(terraform_output_raw public_ip)
   if [[ -n "$ip" && "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "${GREEN}✅ Running${RESET} (${ip})"
+    echo "${GREEN}Running${RESET} (${ip})"
   else
-    echo "${YELLOW}⏸ No lab running${RESET}"
+    echo "${YELLOW}No lab running${RESET}"
   fi
 }
 
@@ -1523,26 +1523,26 @@ main_menu() {
    deployment_status="$(check_deployment_status)"
 
    if [[ -n "$_ip" && "$deployment_status" == "completed"* ]]; then
-     status_line="${GREEN}✅ Running${RESET} (${_ip}) - ${GREEN}Deployment Complete${RESET}"
+     status_line="${GREEN}Running${RESET} (${_ip}) - ${GREEN}Deployment Complete${RESET}"
    elif [[ -n "$_ip" && "$deployment_status" == "deploying"* ]]; then
      local phase_info="${deployment_status//deploying/}"
-     status_line="${YELLOW}🚀 Deploying${RESET} (${_ip}) - ${YELLOW}User Data Running ${phase_info}${RESET}"
+     status_line="${YELLOW}Deploying${RESET} (${_ip}) - ${YELLOW}User Data Running ${phase_info}${RESET}"
    elif [[ -n "$_ip" && "$deployment_status" == "failed" ]]; then
-     status_line="${RED}❌ Failed${RESET} (${_ip}) - ${RED}Bootstrap Failed${RESET}"
+     status_line="${RED}Failed${RESET} (${_ip}) - ${RED}Bootstrap Failed${RESET}"
    elif [[ -n "$_ip" ]]; then
-     status_line="${YELLOW}⚡ Running${RESET} (${_ip}) - ${YELLOW}Status Unknown${RESET}"
+     status_line="${YELLOW}Running${RESET} (${_ip}) - ${YELLOW}Status Unknown${RESET}"
    else
-     status_line="${YELLOW}⏸ No lab running${RESET}"
+     status_line="${YELLOW}No lab running${RESET}"
    fi
 
    soak_status_txt="$(get_soak_time)"
    soak_indicator=""
    if [[ "$soak_status_txt" == *"Ready for Stage 2"* ]]; then
-     soak_indicator="✅"
+     soak_indicator="[READY]"
    elif [[ "$soak_status_txt" == *"Soaking"* ]]; then
-     soak_indicator="⚠️"
+     soak_indicator="[SOAKING]"
    else
-     soak_indicator="⏸"
+     soak_indicator="[WAITING]"
    fi
    echo "${DIM}Status: ${status_line}   Soak: ${soak_indicator} ${soak_status_txt}${RESET}"
    echo "${DIM}Config: ${OWNER}@${REGION} | ${PURPOSE} | ${INSTANCE_TYPE} | ${ALLOWED_CIDR}${RESET}"
